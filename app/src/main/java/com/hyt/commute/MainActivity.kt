@@ -302,15 +302,30 @@ class MainActivity : Activity() {
         curAddrLoc = loc
         Thread {
             try {
-                val line = Geocoder(this, Locale.KOREA).getFromLocation(loc.latitude, loc.longitude, 1)
-                    ?.firstOrNull()?.getAddressLine(0)
+                val line = roadAddress(Geocoder(this, Locale.KOREA).getFromLocation(loc.latitude, loc.longitude, 5))
                 if (!line.isNullOrBlank()) {
-                    curAddr = line.removePrefix("대한민국").trim()
+                    curAddr = line
                     runOnUiThread { updateRange() }
                 }
             } catch (_: Exception) {
             }
         }.start()
+    }
+
+    /** 도로명 주소(…로/길 + 번호) 우선, 없으면 도로명+번호 조합, 그래도 없으면 첫 결과 */
+    private fun roadAddress(list: List<android.location.Address>?): String? {
+        if (list.isNullOrEmpty()) return null
+        val road = Regex("(로|길)\\s?\\d+(-\\d+)?(\\s|$)")
+        val lines = list.mapNotNull { it.getAddressLine(0)?.removePrefix("대한민국")?.trim() }.filter { it.isNotBlank() }
+        lines.firstOrNull { road.containsMatchIn(it) }?.let { return it }
+        for (a in list) {
+            val t = a.thoroughfare ?: continue
+            if (!(t.endsWith("로") || t.endsWith("길") || Regex("(로|길)\\d*번?길?$").containsMatchIn(t))) continue
+            val num = a.subThoroughfare ?: ""
+            val head = listOfNotNull(a.adminArea, a.locality ?: a.subAdminArea, a.subLocality).distinct().joinToString(" ")
+            return "$head $t $num".trim()
+        }
+        return lines.firstOrNull()
     }
 
     private fun curLine(loc: Location?): String = when {
