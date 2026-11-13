@@ -164,5 +164,6 @@ class BootReceiver : BroadcastReceiver() {
         }
         Remind.scheduleAll(c)
         try { UpdateJob.schedule(c) } catch (_: Throwable) { }
+        try { UpdateAlarm.schedule(c) } catch (_: Throwable) { }
     }
 }

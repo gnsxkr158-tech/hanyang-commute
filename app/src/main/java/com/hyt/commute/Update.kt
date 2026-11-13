@@ -38,13 +38,17 @@ object Update {
      * ask=true 이면 새 버전이 있을 때 바로 업데이트 창을 띄움.
      */
     /** (HTTP 코드, 태그, apk 주소) — 실패하면 코드만 의미 있음 */
-    private fun request(): Triple<Int, String, String> {
+    @Volatile private var lastEtag = ""
+
+    private fun request(etag: String = ""): Triple<Int, String, String> {
         val c = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
         c.setRequestProperty("User-Agent", "HanyangCommute")
         c.setRequestProperty("Accept", "application/vnd.github+json")
-        c.connectTimeout = 10_000
-        c.readTimeout = 15_000
+        if (etag.isNotEmpty()) c.setRequestProperty("If-None-Match", etag) // 바뀐 게 없으면 304 (횟수 제한에도 안 걸림)
+        c.connectTimeout = 6_000
+        c.readTimeout = 8_000
         if (c.responseCode != 200) return Triple(c.responseCode, "", "")
+        lastEtag = c.getHeaderField("ETag") ?: ""
         val j = JSONObject(c.inputStream.bufferedReader().readText())
         val assets = j.optJSONArray("assets")
         var url = ""
@@ -58,8 +62,9 @@ object Update {
     /** 앱이 꺼져 있어도 UpdateJob 이 주기적으로 호출. 새 버전이 처음 발견되면 알림 */
     fun backgroundCheck(c: Context) {
         try {
-            val (code, tag, url) = request()
-            if (code != 200) return
+            val (code, tag, url) = request(Prefs.getS(c, "updEtag"))
+            if (code != 200) return // 304 = 새 릴리스 없음
+            Prefs.putS(c, "updEtag", lastEtag)
             val current = c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: return
             val has = url.isNotEmpty() && newer(tag, current)
             Prefs.putS(c, "updTag", if (has) tag else "")
