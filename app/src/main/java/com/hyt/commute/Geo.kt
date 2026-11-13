@@ -163,6 +163,6 @@ class BootReceiver : BroadcastReceiver() {
             Geo.register(c)
         }
         Remind.scheduleAll(c)
-        UpdateJob.schedule(c)
+        try { UpdateJob.schedule(c) } catch (_: Throwable) { }
     }
 }
