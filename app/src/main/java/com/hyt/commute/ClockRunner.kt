@@ -32,7 +32,8 @@ class ClockRunner(
         val end: String = "",
         val place: String = "",
         val place2: String = "",
-        val notNear: Boolean = false
+        val notNear: Boolean = false,
+        val state: String = "" // 사이트의 오늘 상태: 0=출근 전, 1=출근함, 2=퇴근함
     )
 
     private data class St(val s: String, val e: String, val state: String, val p: String = "", val q: String = "", val ready: Boolean = false)
@@ -211,11 +212,14 @@ class ClockRunner(
                         finish(Res(false, false, "폰 위치를 가져오지 못했어요. 위치(GPS)와 권한을 확인해 주세요. $detail".trim(), before.s, before.e, "", "", true))
                         return@reader
                     }
-                    finish(Res(true, true, if (near) "근처" else "근처 아님 $detail".trim(), before.s, before.e, before.p, before.q, !near))
+                    finish(Res(true, true, if (near) "근처" else "근처 아님 $detail".trim(), before.s, before.e, before.p, before.q, !near, before.state))
                     return@reader
                 }
-                if (requireNear && (!before.ready || (before.p.isEmpty() && before.q.isEmpty()))) {
-                    finish(Res(false, false, "지정된 출근지 근처가 아니에요 (사이트가 출근지를 찾지 못했어요)", before.s, before.e, "", "", true))
+                // 출근은 '출근지'가, 퇴근은 '퇴근지'가 사이트에서 선택돼 있어야 함 (출근 후에는 출근지가 고정되므로 퇴근은 퇴근지만 봄)
+                val placeOk = if (action == 2) before.q.isNotEmpty() else before.p.isNotEmpty()
+                if (requireNear && (!before.ready || !placeOk)) {
+                    val what = if (action == 2) "퇴근" else "출근"
+                    finish(Res(false, false, "지정된 ${what}지 근처가 아니에요 (사이트가 ${what}지를 찾지 못했어요)", before.s, before.e, "", "", true, before.state))
                     return@reader
                 }
                 val today = Util.today()

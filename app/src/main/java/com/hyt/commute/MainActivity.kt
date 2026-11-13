@@ -262,11 +262,11 @@ class MainActivity : Activity() {
         locCb = null
     }
 
-    private fun setBtns(on: Boolean) {
-        listOf(inBtn, outBtn).forEach {
-            it.isEnabled = on
-            it.alpha = if (on) 1f else 0.35f
-        }
+    private fun setBtns(inOn: Boolean, outOn: Boolean = inOn) {
+        inBtn.isEnabled = inOn
+        inBtn.alpha = if (inOn) 1f else 0.35f
+        outBtn.isEnabled = outOn
+        outBtn.alpha = if (outOn) 1f else 0.35f
     }
 
     private fun setDot(color: Int) {
@@ -318,6 +318,8 @@ class MainActivity : Activity() {
         curTv.text = curLine(loc)
         val nearAt = Prefs.getS(this, "nearAt").toLongOrNull() ?: 0L
         val name = Prefs.getS(this, "nearName")
+        val kind = Prefs.getS(this, "nearKind")
+        val siteState = Prefs.getS(this, "siteState")
         val fresh = nearAt > 0 && System.currentTimeMillis() - nearAt < 180_000
         val gray = Color.parseColor("#B8BECF")
         val amber = Color.parseColor("#F2A600")
@@ -339,10 +341,21 @@ class MainActivity : Activity() {
                 distTv.text = "설정에서 회사 사이트 아이디/비밀번호를 먼저 입력해 주세요"
                 setDot(gray); setBtns(false)
             }
+            fresh && kind == "done" -> {
+                placeTv.text = "오늘 출퇴근 완료"
+                distTv.text = "오늘 출근과 퇴근을 모두 찍었어요$acc"
+                setDot(Color.parseColor("#14A37F")); setBtns(false)
+            }
             fresh && name.isNotEmpty() -> {
-                placeTv.text = "출근지: " + Spots.label(this, name)
-                distTv.text = "지정된 출근지 근처예요 · 출근/퇴근을 찍을 수 있어요$acc"
-                setDot(Color.parseColor("#14A37F")); setBtns(true)
+                val out = kind == "out"
+                placeTv.text = (if (out) "퇴근지: " else "출근지: ") + Spots.label(this, name)
+                distTv.text = "지정된 ${if (out) "퇴근지" else "출근지"} 근처예요 · ${if (out) "퇴근" else "출근"}을 찍을 수 있어요$acc"
+                setDot(Color.parseColor("#14A37F")); setBtns(!out, out)
+            }
+            fresh && siteState == "1" -> {
+                placeTv.text = "퇴근지 밖"
+                distTv.text = "이미 출근했어요. 퇴근은 지정된 퇴근지 근처에서 켜져요$acc"
+                setDot(amber); setBtns(false)
             }
             fresh -> {
                 placeTv.text = "지정된 출근지 밖"

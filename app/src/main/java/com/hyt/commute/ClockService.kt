@@ -180,8 +180,13 @@ class ClockService : Service() {
             }
             if (action == 3) {
                 if (res.ok) {
-                    // 사이트가 GPS로 출근지를 찾았으면 출근지명이 채워짐 → '근처'
-                    Prefs.putS(c, "nearName", res.place.ifEmpty { res.place2 })
+                    // 사이트가 GPS로 출근지/퇴근지를 찾아 '선택'해 주면 '근처'.
+                    // 출근 후에는 출근지가 고정되므로 퇴근 전(상태 1)에는 퇴근지만, 출근 전(상태 0)에는 출근지만 본다.
+                    val kind = when (res.state) { "1" -> "out"; "2" -> "done"; else -> "in" }
+                    val name = when (kind) { "out" -> res.place2; "in" -> res.place; else -> "" }
+                    Prefs.putS(c, "siteState", res.state)
+                    Prefs.putS(c, "nearKind", kind)
+                    Prefs.putS(c, "nearName", name)
                     Prefs.putS(c, "nearAt", System.currentTimeMillis().toString())
                 } else {
                     Prefs.putS(c, "nearAt", "0") // 확인 못 함(알 수 없음)
@@ -193,6 +198,8 @@ class ClockService : Service() {
         }
         val today = Util.today()
         if (res.ok) {
+            Prefs.putS(c, "siteState", if (action == 1) "1" else "2")
+            Prefs.putS(c, "nearAt", "0") // 상태가 바뀌었으니 출근지/퇴근지를 다시 확인
             if (action == 1) {
                 Prefs.putS(c, "inDate", today)
                 Prefs.putS(c, "inText", res.start.ifEmpty { Util.now() })
