@@ -596,14 +596,6 @@ class MainActivity : Activity() {
         p0.addView(outlineBtn("사이트 직접 열기 (수동 로그인/확인)") {
             startActivity(Intent(this, WebActivity::class.java))
         }, lp(10, -1, dp(46)))
-        p0.addView(sectionTitle("점검 (실제로 찍지 않아요)"))
-        p0.addView(label("로그인 · 화면 · 버튼 · 위치 확인까지만 하고, 출퇴근 기록은 남기지 않아요.", 12f, subGray))
-        val dry = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        dry.addView(outlineBtn("출근 모의 실행") { dryRun(1) },
-            LinearLayout.LayoutParams(0, dp(46), 1f).apply { rightMargin = dp(6) })
-        dry.addView(outlineBtn("퇴근 모의 실행") { dryRun(2) },
-            LinearLayout.LayoutParams(0, dp(46), 1f).apply { leftMargin = dp(6) })
-        p0.addView(dry, lp(6))
 
         // ----- 탭 2: 회사 아이디 -----
         val p1 = panels[1]!!
@@ -691,20 +683,6 @@ class MainActivity : Activity() {
                 setTextColor(if (on) Color.WHITE else navy)
             }
         }
-    }
-
-    /** 모의 실행: 로그인·화면·버튼·위치를 확인하되 ExecCommuteClick 은 호출하지 않음 */
-    private fun dryRun(action: Int) {
-        if (!Prefs.hasCreds(this)) {
-            Toast.makeText(this, "먼저 아이디/비밀번호를 저장해 주세요", Toast.LENGTH_LONG).show()
-            return
-        }
-        if (ClockService.running) {
-            Toast.makeText(this, "다른 작업을 처리 중이에요. 잠시 후 다시 눌러 주세요", Toast.LENGTH_LONG).show()
-            return
-        }
-        msgTv.text = "모의 실행 중… (실제로 찍지 않아요)"
-        ClockService.start(this, action, true, gate = false, dry = true)
     }
 
     private fun refresh() {
