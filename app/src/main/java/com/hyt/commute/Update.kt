@@ -2,9 +2,11 @@ package com.hyt.commute
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.DownloadManager
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Environment
 import android.widget.Toast
 import org.json.JSONObject
 import java.net.HttpURLConnection
@@ -109,11 +111,27 @@ object Update {
         }
         AlertDialog.Builder(act)
             .setTitle("새 버전 ${tag.removePrefix("v")}")
-            .setMessage("지금 v$current 를 쓰고 있어요. 새 버전을 내려받을까요?\n\n내려받은 뒤 알림이나 다운로드 목록에서 파일을 눌러 설치해 주세요.")
-            .setPositiveButton("내려받기") { _, _ ->
-                act.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-            }
+            .setMessage("지금 v$current 를 쓰고 있어요. 새 버전을 내려받을까요?\n\n내려받기가 끝나면 알림이 떠요. 그 알림을 눌러 설치해 주세요.")
+            .setPositiveButton("내려받기") { _, _ -> download(act, url, tag) }
             .setNegativeButton("나중에", null)
             .show()
+    }
+
+    /** 안드로이드 다운로드 관리자로 받기: 진행 상황이 알림에 보이고, 끝나면 알림을 눌러 설치 */
+    private fun download(act: Activity, url: String, tag: String) {
+        try {
+            val name = "HanyangCommute-$tag-${System.currentTimeMillis() / 1000}.apk"
+            val req = DownloadManager.Request(Uri.parse(url))
+                .setTitle("한양 출퇴근 $tag")
+                .setDescription("업데이트 파일 내려받는 중")
+                .setMimeType("application/vnd.android.package-archive")
+                .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                .setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name)
+            act.getSystemService(DownloadManager::class.java).enqueue(req)
+            Toast.makeText(act, "내려받기를 시작했어요. 알림창에서 진행 상황을 볼 수 있어요. 끝나면 알림을 눌러 설치해 주세요.", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            // 다운로드 관리자를 못 쓰면 브라우저로 넘김
+            act.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }
     }
 }

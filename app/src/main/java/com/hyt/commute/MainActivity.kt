@@ -472,16 +472,19 @@ class MainActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.END
         }
-        verBox.addView(label("v${versionName()}", 12f, navy).apply {
-            background = rounded(Color.parseColor("#EEF1FA"), 12)
-            setPadding(dp(10), dp(4), dp(10), dp(4))
-        })
+        verBox.addView(
+            label("v${versionName()}", 12f, navy).apply {
+                background = rounded(Color.parseColor("#EEF1FA"), 12)
+                setPadding(dp(10), dp(4), dp(10), dp(4))
+            },
+            LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.END }
+        )
         updTv = label("업데이트가 필요함", 10.5f, Color.parseColor("#D64545"), true).apply {
             visibility = View.GONE
             setPadding(0, dp(3), dp(2), 0)
             setOnClickListener { Update.prompt(this@MainActivity, versionName()) }
         }
-        verBox.addView(updTv)
+        verBox.addView(updTv, LinearLayout.LayoutParams(-2, -2).apply { gravity = Gravity.END })
         top.addView(verBox)
         header.addView(top, lp())
         header.addView(label("출퇴근", 14f, subGray), lp(22))
