@@ -2,6 +2,7 @@ package com.hyt.commute
 
 import android.app.Activity
 import android.app.AlertDialog
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
@@ -34,27 +35,53 @@ object Update {
      * 새 버전 확인. 결과는 updTag/updUrl 에 저장하고 화면을 갱신.
      * ask=true 이면 새 버전이 있을 때 바로 업데이트 창을 띄움.
      */
+    /** (HTTP 코드, 태그, apk 주소) — 실패하면 코드만 의미 있음 */
+    private fun request(): Triple<Int, String, String> {
+        val c = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
+        c.setRequestProperty("User-Agent", "HanyangCommute")
+        c.setRequestProperty("Accept", "application/vnd.github+json")
+        c.connectTimeout = 10_000
+        c.readTimeout = 15_000
+        if (c.responseCode != 200) return Triple(c.responseCode, "", "")
+        val j = JSONObject(c.inputStream.bufferedReader().readText())
+        val assets = j.optJSONArray("assets")
+        var url = ""
+        if (assets != null) for (i in 0 until assets.length()) {
+            val a = assets.getJSONObject(i)
+            if (a.optString("name").endsWith(".apk")) url = a.optString("browser_download_url")
+        }
+        return Triple(200, j.optString("tag_name"), url)
+    }
+
+    /** 앱이 꺼져 있어도 UpdateJob 이 주기적으로 호출. 새 버전이 처음 발견되면 알림 */
+    fun backgroundCheck(c: Context) {
+        try {
+            val (code, tag, url) = request()
+            if (code != 200) return
+            val current = c.packageManager.getPackageInfo(c.packageName, 0).versionName ?: return
+            val has = url.isNotEmpty() && newer(tag, current)
+            Prefs.putS(c, "updTag", if (has) tag else "")
+            Prefs.putS(c, "updUrl", if (has) url else "")
+            if (has && Prefs.getS(c, "updNotified") != tag) {
+                Prefs.putS(c, "updNotified", tag)
+                Util.notify(
+                    c, "새 버전 ${tag.removePrefix("v")}이 나왔어요",
+                    "앱을 열고 맨 위의 '업데이트가 필요함'을 눌러 받아 주세요.", 5
+                )
+            }
+        } catch (_: Exception) {
+        }
+    }
+
     fun check(act: Activity, current: String, manual: Boolean, ask: Boolean = manual) {
         Thread {
             try {
-                val c = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
-                c.setRequestProperty("User-Agent", "HanyangCommute")
-                c.setRequestProperty("Accept", "application/vnd.github+json")
-                c.connectTimeout = 10_000
-                c.readTimeout = 15_000
-                if (c.responseCode != 200) {
+                val (code, tag, url) = request()
+                if (code != 200) {
                     if (manual) act.runOnUiThread {
-                        Toast.makeText(act, "업데이트 확인 실패 (${c.responseCode})", Toast.LENGTH_LONG).show()
+                        Toast.makeText(act, "업데이트 확인 실패 ($code)", Toast.LENGTH_LONG).show()
                     }
                     return@Thread
-                }
-                val j = JSONObject(c.inputStream.bufferedReader().readText())
-                val tag = j.optString("tag_name")
-                val assets = j.optJSONArray("assets")
-                var url = ""
-                if (assets != null) for (i in 0 until assets.length()) {
-                    val a = assets.getJSONObject(i)
-                    if (a.optString("name").endsWith(".apk")) url = a.optString("browser_download_url")
                 }
                 val has = url.isNotEmpty() && newer(tag, current)
                 Prefs.putS(act, "updTag", if (has) tag else "")

@@ -270,6 +270,7 @@ class MainActivity : Activity() {
         Bus.onChange = { runOnUiThread { refresh() } }
         refresh()
         Remind.scheduleAll(this)
+        UpdateJob.schedule(this) // 앱이 꺼져 있어도 새 버전 알림
         val nowMs = System.currentTimeMillis()
         if (nowMs - (Prefs.getS(this, "updChk").toLongOrNull() ?: 0L) > 30 * 60_000L) {
             Prefs.putS(this, "updChk", nowMs.toString())
