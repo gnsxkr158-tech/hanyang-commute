@@ -51,6 +51,7 @@ class MainActivity : Activity() {
     private lateinit var idEt: EditText
     private lateinit var pwEt: EditText
     private lateinit var locTv: TextView
+    private lateinit var locStatTv: TextView
     private lateinit var autoSw: Switch
     private lateinit var weekendSw: Switch
     private lateinit var autoOutSw: Switch
@@ -371,6 +372,15 @@ class MainActivity : Activity() {
                 setDot(gray); setBtns(false)
             }
         }
+        // 위치 확인 탭: 현재 위치 / 판단 결과 / 마지막 확인 시각 / 기억한 출근지(현재 위치와의 거리)
+        val last = if (nearAt > 0) SimpleDateFormat("HH:mm:ss", Locale.KOREA).format(Date(nearAt)) else "아직 없음"
+        locStatTv.text = "${curLine(loc)}\n${placeTv.text}\n${distTv.text}\n마지막 확인: $last"
+        val spots = Spots.all(this)
+        locTv.text = if (spots.isEmpty()) "아직 없어요 (출근지 근처에서 앱을 열면 자동으로 기억해요)"
+        else spots.joinToString("\n") {
+            val d = if (loc != null) " · 현재 위치에서 약 ${Gate.distance(it.lat, it.lng, loc)}m" else ""
+            (if (it.addr.isNotEmpty()) it.addr + " - " else "") + it.name + d
+        }
     }
 
     /** 사이트가 '근처'로 인정한 순간의 폰 좌표를 출근지명과 함께 기억 (자동 출근 알림/지오펜스에 사용) */
@@ -617,11 +627,16 @@ class MainActivity : Activity() {
 
         // ----- 탭 3: 위치 확인 -----
         val p2 = panels[2]!!
-        p2.addView(label("출근지 · 위치", 13f, subGray, true))
-        p2.addView(label("출근지는 회사 사이트가 판단해요. 폰이 지정된 출근지 근처에 도착하면 사이트가 출근지를 보여 주고, 그때 앱이 이름을 표시하며 출근/퇴근 버튼을 켜요. 그 위치는 앱이 자동으로 기억해 자동 출근에 써요.", 12f, subGray))
+        p2.addView(label("위치 확인", 13f, subGray, true))
+        p2.addView(label("회사 사이트가 폰 GPS로 출근지를 판단해요. 출근 전에는 출근지, 출근 후에는 퇴근지 근처일 때만 해당 버튼이 켜져요.", 12f, subGray))
+        locStatTv = label("", 13f, ink)
+        p2.addView(locStatTv, lp(10))
+        p2.addView(outlineBtn("지금 위치 다시 확인") { syncNow(true) }, lp(10, -1, dp(46)))
+        p2.addView(sectionTitle("기억한 출근지 (자동 출근용)"))
+        p2.addView(label("사이트가 근처로 확인해 준 위치를 앱이 자동으로 기억해요. 기억한 곳에 도착하면 자동 출근에 써요.", 12f, subGray))
         locTv = label("", 13f, ink)
-        p2.addView(locTv, lp(8))
-        p2.addView(label("출퇴근은 지정된 출근지 반경 50m 이내에서만 가능해요 (자동 적용).", 12f, subGray), lp(10))
+        p2.addView(locTv, lp(6))
+        p2.addView(label("출퇴근은 지정된 위치 반경 50m 이내에서만 가능해요 (자동 적용).", 12f, subGray), lp(10))
 
         // ----- 탭 4: 설정 -----
         val p3 = panels[3]!!
@@ -729,9 +744,6 @@ class MainActivity : Activity() {
         updateRange()
         learnIfNear()
         updTv.visibility = if (Update.pending(this, versionName())) View.VISIBLE else View.GONE
-        val spots = Spots.all(this)
-        locTv.text = if (spots.isEmpty()) "알고 있는 출근지: 아직 없음 (출근지 근처에서 앱을 열면 자동으로 기억해요)"
-        else "알고 있는 출근지 ${spots.size}곳\n" + spots.joinToString("\n") { (if (it.addr.isNotEmpty()) it.addr + " - " else "") + it.name }
     }
 
     // ---------------- 수동 출퇴근 ----------------
