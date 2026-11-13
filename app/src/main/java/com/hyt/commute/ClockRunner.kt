@@ -35,7 +35,7 @@ class ClockRunner(
         val notNear: Boolean = false
     )
 
-    private data class St(val s: String, val e: String, val state: String, val p: String = "", val q: String = "")
+    private data class St(val s: String, val e: String, val state: String, val p: String = "", val q: String = "", val ready: Boolean = false)
 
     private val h = Handler(Looper.getMainLooper())
     private lateinit var wv: WebView
@@ -117,7 +117,7 @@ class ClockRunner(
 
     private fun parse(t: String): St = try {
         val o = JSONObject(t)
-        St(o.optString("s"), o.optString("e"), o.optString("st"), o.optString("p"), o.optString("q"))
+        St(o.optString("s"), o.optString("e"), o.optString("st"), o.optString("p"), o.optString("q"), o.optBoolean("g"))
     } catch (e: Exception) {
         St("", "", "")
     }
@@ -172,11 +172,12 @@ class ClockRunner(
 
     private var nearTries = 0
 
-    /** 사이트가 폰 GPS로 '지정된 출근지'를 찾아 출근지명을 채울 때까지 기다림 (최대 약 40초) */
+    /** 사이트가 폰 GPS로 '지정된 출근지'를 찾아 출근지명을 채울 때까지 기다림 (최대 약 50초) */
     private fun waitNear(cb: (St) -> Unit) {
         js(READ) { raw ->
             val st = parse(raw)
-            if (st.p.isNotEmpty() || st.q.isNotEmpty() || nearTries >= 20) {
+            // 사이트가 폰 GPS를 받아 서버에 확인한 뒤(ready)에야 출근지 값이 믿을 수 있음
+            if (st.ready || nearTries >= 25) {
                 cb(st)
             } else {
                 nearTries++
@@ -206,10 +207,14 @@ class ClockRunner(
                 if (action == 3) { // 출근지 확인: 사이트가 출근지명을 보여주면 '근처'
                     val near = before.p.isNotEmpty() || before.q.isNotEmpty()
                     val detail = alerts.filter { it.isNotBlank() }.joinToString(" / ")
+                    if (!before.ready) { // 폰 위치를 사이트가 받지 못함 → 근처 여부를 알 수 없음
+                        finish(Res(false, false, "폰 위치를 가져오지 못했어요. 위치(GPS)와 권한을 확인해 주세요. $detail".trim(), before.s, before.e, "", "", true))
+                        return@reader
+                    }
                     finish(Res(true, true, if (near) "근처" else "근처 아님 $detail".trim(), before.s, before.e, before.p, before.q, !near))
                     return@reader
                 }
-                if (requireNear && before.p.isEmpty() && before.q.isEmpty()) {
+                if (requireNear && (!before.ready || (before.p.isEmpty() && before.q.isEmpty()))) {
                     finish(Res(false, false, "지정된 출근지 근처가 아니에요 (사이트가 출근지를 찾지 못했어요)", before.s, before.e, "", "", true))
                     return@reader
                 }
@@ -269,12 +274,13 @@ class ClockRunner(
         private const val READ =
             "(function(){try{var f=document.querySelector('iframe');var d=f.contentDocument,w=f.contentWindow;" +
                     "function v(k){var e=d.querySelector('input[id*=\"'+k+'_I\"]');return e?e.value:'';}" +
-                    // 사이트가 GPS로 찾아 채워 주는 출근지/퇴근지 이름 읽기: 선택된 값, 없으면 목록 전체
-                    "function pl(nm){var r='';try{var c=w.ASPxClientControl.GetControlCollection().GetByName(nm);" +
-                    "if(c){var t=c.GetText();if(t&&t.trim()){r=t.trim();}else{var a=[];" +
-                    "for(var i=0;i<c.GetItemCount();i++)a.push(c.GetItem(i).text);r=a.join(' / ');}}}catch(x){}return r;}" +
-                    "return JSON.stringify({s:v('txtStartTime'),e:v('txtEndTime'),st:v('txtState')," +
-                    "p:pl('CbPnlCommute_BootstrapFormLayout1_cboTitle'),q:pl('CbPnlCommute_BootstrapFormLayout1_cboTitle2')});" +
+                    // 사이트가 폰 GPS 위치를 서버에 보내 '지정된 출근지'를 찾으면 그 값을 '선택'해 줌. 선택된 값이 있을 때만 근처로 봄
+                    // (목록에는 위치와 상관없이 이름이 들어 있을 수 있으므로 목록은 보지 않음)
+                    "function pl(c){try{if(c&&c.GetValue()!==null&&c.GetValue()!==undefined){var t=c.GetText();return t?t.trim():'';}}catch(x){}return '';}" +
+                    // g: 폰 위치를 받아(lat != -1) 서버 확인(콜백)까지 끝났는지. 퇴근 완료(2) 상태에서는 사이트가 위치를 조회하지 않음
+                    "var st=v('txtState');var g=false;try{g=(w.lat!==-1&&!w.cbPnlCommute.InCallback())||st==='2';}catch(x){}" +
+                    "return JSON.stringify({s:v('txtStartTime'),e:v('txtEndTime'),st:st,g:g," +
+                    "p:pl(w.cboTitle),q:pl(w.cboTitle2)});" +
                     "}catch(x){return '{}';}})()"
 
         // 로그인 화면 자동 입력 (비밀번호 입력칸 바로 앞의 텍스트 입력칸을 ID로 간주)

@@ -61,7 +61,10 @@ class MainActivity : Activity() {
     private lateinit var outSub: TextView
     private lateinit var dot: View
     private lateinit var placeTv: TextView
-    private lateinit var addrEt: EditText
+    private lateinit var curTv: TextView
+    private var curAddr = ""
+    private var curAddrAt = 0L
+    private var curAddrLoc: Location? = null
     private lateinit var inBtn: Button
     private lateinit var outBtn: Button
     private var lastLoc: Location? = null
@@ -127,69 +130,7 @@ class MainActivity : Activity() {
     private fun insetBottom(i: WindowInsets): Int =
         if (Build.VERSION.SDK_INT >= 30) i.getInsets(WindowInsets.Type.systemBars()).bottom else i.systemWindowInsetBottom
 
-    /** "주소 - 위치명" */
-    private fun placeLine(): String {
-        val addr = Prefs.getS(this, "addr")
-        val name = Prefs.getS(this, "placeName")
-        return when {
-            addr.isNotEmpty() && name.isNotEmpty() -> "$addr - $name"
-            addr.isNotEmpty() -> addr
-            else -> name
-        }
-    }
-
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
-
-    /** 입력한 주소를 폰의 주소 검색(Geocoder)으로 좌표로 변환해 회사 위치로 등록 */
-    @Suppress("DEPRECATION")
-    private fun findAddress() {
-        val q = addrEt.text.toString().trim()
-        if (q.isEmpty()) {
-            toast("회사 주소를 입력해 주세요")
-            return
-        }
-        if (!Geocoder.isPresent()) {
-            toast("이 폰은 주소 검색을 지원하지 않아요. '지금 위치를 회사로 등록'을 사용해 주세요")
-            return
-        }
-        toast("주소를 찾는 중…")
-        Thread {
-            try {
-                val r = Geocoder(this, Locale.KOREA).getFromLocationName(q, 1)
-                runOnUiThread {
-                    if (r.isNullOrEmpty()) {
-                        toast("주소를 찾지 못했어요. 도로명 주소로 자세히 입력해 보세요")
-                    } else {
-                        Prefs.putS(this, "lat", r[0].latitude.toString())
-                        Prefs.putS(this, "lng", r[0].longitude.toString())
-                        Prefs.putS(this, "addr", q)
-                        saveSettings(false)
-                        refresh()
-                        toast("회사 위치를 등록했어요")
-                    }
-                }
-            } catch (e: Exception) {
-                runOnUiThread { toast("주소 검색에 실패했어요. 인터넷 연결을 확인해 주세요") }
-            }
-        }.start()
-    }
-
-    /** 좌표 → 주소 글자 (현재 위치로 등록했을 때 화면에 주소를 표시하기 위함) */
-    @Suppress("DEPRECATION")
-    private fun reverseAddress(lat: Double, lng: Double) {
-        if (!Geocoder.isPresent()) return
-        Thread {
-            try {
-                val r = Geocoder(this, Locale.KOREA).getFromLocation(lat, lng, 1)
-                val line = r?.firstOrNull()?.getAddressLine(0)
-                if (!line.isNullOrBlank()) {
-                    Prefs.putS(this, "addr", line.removePrefix("대한민국").trim())
-                    runOnUiThread { refresh() }
-                }
-            } catch (_: Exception) {
-            }
-        }.start()
-    }
 
     private fun versionName(): String = try {
         packageManager.getPackageInfo(packageName, 0).versionName ?: ""
@@ -235,6 +176,15 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (!Prefs.getB(this, "mig113", false)) { // 직접 등록 기능 삭제: 이전에 잘못 기억된 출근지/직접 등록 위치를 비움
+            Prefs.putS(this, "spots", "[]")
+            Prefs.putS(this, "lat", "")
+            Prefs.putS(this, "lng", "")
+            Prefs.putS(this, "addr", "")
+            Prefs.putS(this, "nearName", "")
+            Prefs.putS(this, "nearAt", "0")
+            Prefs.putB(this, "mig113", true)
+        }
         buildUi()
         refresh()
         if (!Prefs.hasCreds(this)) showPanel(1)
@@ -299,6 +249,7 @@ class MainActivity : Activity() {
         val cb = object : LocationCallback() {
             override fun onLocationResult(r: LocationResult) {
                 lastLoc = r.lastLocation
+                updateCurAddr(r.lastLocation)
                 updateRange()
             }
         }
@@ -334,8 +285,37 @@ class MainActivity : Activity() {
      * 출근지 판단은 회사 사이트가 합니다. 사이트는 폰의 GPS로 '지정된 출근지 근처'일 때 출근지명을 자동으로 채워 줍니다.
      * 앱은 그 결과(출근지명이 떴는지)를 읽어서 이름을 보여주고 출근/퇴근 버튼을 켭니다.
      */
+    /** 현재 위치 주소 (폰의 주소 검색 사용, 40m 이상 움직이거나 2분마다 갱신) */
+    @Suppress("DEPRECATION")
+    private fun updateCurAddr(loc: Location?) {
+        if (loc == null || !Geocoder.isPresent()) return
+        val now = System.currentTimeMillis()
+        val moved = curAddrLoc?.let { it.distanceTo(loc) > 40f } ?: true
+        if (!moved && now - curAddrAt < 120_000L) return
+        curAddrAt = now
+        curAddrLoc = loc
+        Thread {
+            try {
+                val line = Geocoder(this, Locale.KOREA).getFromLocation(loc.latitude, loc.longitude, 1)
+                    ?.firstOrNull()?.getAddressLine(0)
+                if (!line.isNullOrBlank()) {
+                    curAddr = line.removePrefix("대한민국").trim()
+                    runOnUiThread { updateRange() }
+                }
+            } catch (_: Exception) {
+            }
+        }.start()
+    }
+
+    private fun curLine(loc: Location?): String = when {
+        loc == null -> "현재 위치: 확인 중…"
+        curAddr.isNotEmpty() -> "현재 위치: $curAddr"
+        else -> "현재 위치: %.5f, %.5f".format(Locale.US, loc.latitude, loc.longitude)
+    }
+
     private fun updateRange() {
         val loc = lastLoc
+        curTv.text = curLine(loc)
         val nearAt = Prefs.getS(this, "nearAt").toLongOrNull() ?: 0L
         val name = Prefs.getS(this, "nearName")
         val fresh = nearAt > 0 && System.currentTimeMillis() - nearAt < 180_000
@@ -360,7 +340,7 @@ class MainActivity : Activity() {
                 setDot(gray); setBtns(false)
             }
             fresh && name.isNotEmpty() -> {
-                placeTv.text = Spots.label(this, name)
+                placeTv.text = "출근지: " + Spots.label(this, name)
                 distTv.text = "지정된 출근지 근처예요 · 출근/퇴근을 찍을 수 있어요$acc"
                 setDot(Color.parseColor("#14A37F")); setBtns(true)
             }
@@ -535,6 +515,8 @@ class MainActivity : Activity() {
         val locCard = card()
         placeTv = label("", 13f, navy, true)
         locCard.addView(placeTv, lp())
+        curTv = label("", 12.5f, subGray)
+        locCard.addView(curTv, lp(4))
         val locRow = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -623,13 +605,9 @@ class MainActivity : Activity() {
         // ----- 탭 3: 위치 확인 -----
         val p2 = panels[2]!!
         p2.addView(label("출근지 · 위치", 13f, subGray, true))
-        p2.addView(label("출근지는 사이트가 인정해 준 위치에서 앱이 자동으로 기억해요. 아래 직접 등록은 선택이에요.", 12f, subGray))
+        p2.addView(label("출근지는 회사 사이트가 판단해요. 폰이 지정된 출근지 근처에 도착하면 사이트가 출근지를 보여 주고, 그때 앱이 이름을 표시하며 출근/퇴근 버튼을 켜요. 그 위치는 앱이 자동으로 기억해 자동 출근에 써요.", 12f, subGray))
         locTv = label("", 13f, ink)
         p2.addView(locTv, lp(8))
-        p2.addView(outlineBtn("지금 위치를 출근지로 직접 등록(선택)") { registerOffice() }, lp(8, -1, dp(46)))
-        addrEt = field("회사 주소 (예: 경기도 ○○시 ○○로 12)")
-        p2.addView(addrEt, lp(6))
-        p2.addView(outlineBtn("주소로 회사 위치 찾기") { findAddress() }, lp(6, -1, dp(46)))
         p2.addView(label("출퇴근은 지정된 출근지 반경 50m 이내에서만 가능해요 (자동 적용).", 12f, subGray), lp(10))
 
         // ----- 탭 4: 설정 -----
@@ -662,7 +640,6 @@ class MainActivity : Activity() {
 
         // 저장된 값 반영 (스위치 리스너는 반영 후에 연결)
         idEt.setText(Prefs.getS(this, "uid"))
-        addrEt.setText(Prefs.getS(this, "addr"))
         Prefs.putI(this, "radius", 50) // 허용 반경은 50m 고정
         Prefs.putI(this, "exitHour", 17) // 자동 퇴근은 17시 이후 고정
         autoSw.isChecked = Prefs.getB(this, "auto", false)
@@ -737,11 +714,8 @@ class MainActivity : Activity() {
             }
         }
         updateRange()
-        val lat = Prefs.getS(this, "lat")
-        val lng = Prefs.getS(this, "lng")
         learnIfNear()
         updTv.visibility = if (Update.pending(this, versionName())) View.VISIBLE else View.GONE
-        if (!addrEt.hasFocus()) addrEt.setText(Prefs.getS(this, "addr"))
         val spots = Spots.all(this)
         locTv.text = if (spots.isEmpty()) "알고 있는 출근지: 아직 없음 (출근지 근처에서 앱을 열면 자동으로 기억해요)"
         else "알고 있는 출근지 ${spots.size}곳\n" + spots.joinToString("\n") { (if (it.addr.isNotEmpty()) it.addr + " - " else "") + it.name }
@@ -812,31 +786,6 @@ class MainActivity : Activity() {
                     ).show()
                 }
             }
-        }
-    }
-
-    @SuppressLint("MissingPermission")
-    private fun registerOffice() {
-        ensureLocationPerms {
-            Toast.makeText(this, "현재 위치를 확인하는 중…", Toast.LENGTH_SHORT).show()
-            LocationServices.getFusedLocationProviderClient(this)
-                .getCurrentLocation(Priority.PRIORITY_HIGH_ACCURACY, null)
-                .addOnSuccessListener { loc ->
-                    if (loc == null) {
-                        Toast.makeText(this, "위치를 가져오지 못했어요. GPS를 켜고 다시 시도해 주세요", Toast.LENGTH_LONG).show()
-                    } else {
-                        Prefs.putS(this, "lat", loc.latitude.toString())
-                        Prefs.putS(this, "lng", loc.longitude.toString())
-                        Prefs.putS(this, "addr", "")
-                        reverseAddress(loc.latitude, loc.longitude)
-                        saveSettings(false)
-                        refresh()
-                        Toast.makeText(this, "회사 위치를 등록했어요 (정확도 약 ${loc.accuracy.toInt()}m)", Toast.LENGTH_LONG).show()
-                    }
-                }
-                .addOnFailureListener {
-                    Toast.makeText(this, "위치 확인 실패: ${it.message}", Toast.LENGTH_LONG).show()
-                }
         }
     }
 

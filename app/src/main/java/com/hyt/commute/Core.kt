@@ -114,12 +114,6 @@ object Spots {
             }
         } catch (_: Exception) {
         }
-        // 직접 등록한 위치(선택 기능)도 포함
-        val lat = Prefs.getS(c, "lat").toDoubleOrNull()
-        val lng = Prefs.getS(c, "lng").toDoubleOrNull()
-        if (lat != null && lng != null) {
-            out.add(Spot(Prefs.getS(c, "placeName").ifEmpty { "직접 등록" }, lat, lng, Prefs.getS(c, "addr")))
-        }
         return out
     }
 
