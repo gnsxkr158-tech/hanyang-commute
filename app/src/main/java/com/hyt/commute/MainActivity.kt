@@ -50,8 +50,6 @@ class MainActivity : Activity() {
     private lateinit var updTv: TextView
     private lateinit var idEt: EditText
     private lateinit var pwEt: EditText
-    private lateinit var radiusEt: EditText
-    private lateinit var hourEt: EditText
     private lateinit var locTv: TextView
     private lateinit var autoSw: Switch
     private lateinit var weekendSw: Switch
@@ -549,17 +547,17 @@ class MainActivity : Activity() {
         fun big(text: String, color: Int, action: Int) = Button(this).apply {
             this.text = text
             isAllCaps = false
-            textSize = 22f
+            textSize = 17f
             typeface = Typeface.DEFAULT_BOLD
             setTextColor(Color.WHITE)
-            background = rounded(color, 20)
+            background = rounded(color, 16)
             stateListAnimator = null
             setOnClickListener { manual(action) }
         }
         inBtn = big("출근", navy, 1)
         outBtn = big("퇴근", green, 2)
-        row.addView(inBtn, LinearLayout.LayoutParams(0, dp(110), 1f).apply { rightMargin = dp(6) })
-        row.addView(outBtn, LinearLayout.LayoutParams(0, dp(110), 1f).apply { leftMargin = dp(6) })
+        row.addView(inBtn, LinearLayout.LayoutParams(0, dp(64), 1f).apply { rightMargin = dp(6) })
+        row.addView(outBtn, LinearLayout.LayoutParams(0, dp(64), 1f).apply { leftMargin = dp(6) })
         body.addView(row, lp(14))
         setBtns(false) // 회사 허용 반경 이내로 확인되기 전까지는 비활성
 
@@ -628,23 +626,19 @@ class MainActivity : Activity() {
         addrEt = field("회사 주소 (예: 경기도 ○○시 ○○로 12)")
         p2.addView(addrEt, lp(6))
         p2.addView(outlineBtn("주소로 회사 위치 찾기") { findAddress() }, lp(6, -1, dp(46)))
-        radiusEt = field("출퇴근 허용 반경(m) — 기본 50", number = true)
-        p2.addView(radiusEt, lp(8))
-        p2.addView(filledBtn("저장") { saveSettings(true) }, lp(10, -1, dp(46)))
+        p2.addView(label("출퇴근은 지정된 출근지 반경 50m 이내에서만 가능해요 (자동 적용).", 12f, subGray), lp(10))
 
         // ----- 탭 4: 설정 -----
         val p3 = panels[3]!!
         p3.addView(label("자동 출퇴근 · 알림", 13f, subGray, true))
-        hourEt = field("자동 퇴근 인식 시작 시각(시) — 기본 17", number = true)
         autoSw = Switch(this).apply { text = "회사 도착 시 자동 출근" }
         lateSw = Switch(this).apply { text = "08시 이후 도착하면 자동 출근 대신 알림만" }
         weekendSw = Switch(this).apply { text = "주말에는 자동 출퇴근·알림 끄기" }
         remindSw = Switch(this).apply { text = "알림: 출근 10분 전(07:50) · 퇴근(17:00)" }
-        autoOutSw = Switch(this).apply { text = "회사를 벗어날 때 자동 퇴근 (이 경우만 거리 규칙 미적용)" }
+        autoOutSw = Switch(this).apply { text = "17시 이후 회사를 벗어나면 자동 퇴근" }
         p3.addView(autoSw, lp(10))
         p3.addView(lateSw, lp(6))
         p3.addView(autoOutSw, lp(6))
-        p3.addView(hourEt, lp(6))
         p3.addView(weekendSw, lp(6))
         p3.addView(remindSw, lp(6))
         p3.addView(sectionTitle("앱 업데이트"))
@@ -665,8 +659,8 @@ class MainActivity : Activity() {
         // 저장된 값 반영 (스위치 리스너는 반영 후에 연결)
         idEt.setText(Prefs.getS(this, "uid"))
         addrEt.setText(Prefs.getS(this, "addr"))
-        radiusEt.setText(Prefs.getI(this, "radius", 50).toString())
-        hourEt.setText(Prefs.getI(this, "exitHour", 17).toString())
+        Prefs.putI(this, "radius", 50) // 허용 반경은 50m 고정
+        Prefs.putI(this, "exitHour", 17) // 자동 퇴근은 17시 이후 고정
         autoSw.isChecked = Prefs.getB(this, "auto", false)
         weekendSw.isChecked = Prefs.getB(this, "skipWeekend", true)
         autoOutSw.isChecked = Prefs.getB(this, "autoOut", false)
@@ -790,10 +784,8 @@ class MainActivity : Activity() {
             Prefs.putS(this, "loginState", "") // 계정이 바뀌었으니 다시 확인
         }
         pwEt.setText("")
-        Prefs.putI(this, "radius", (radiusEt.text.toString().toIntOrNull() ?: 50).coerceIn(20, 1000))
-        Prefs.putI(this, "exitHour", (hourEt.text.toString().toIntOrNull() ?: 17).coerceIn(0, 23))
-        radiusEt.setText(Prefs.getI(this, "radius", 50).toString())
-        hourEt.setText(Prefs.getI(this, "exitHour", 17).toString())
+        Prefs.putI(this, "radius", 50)
+        Prefs.putI(this, "exitHour", 17)
         if (Prefs.getB(this, "auto", false)) Geo.register(this)
         if (toast) Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()
     }
