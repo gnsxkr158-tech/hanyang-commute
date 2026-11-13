@@ -2,20 +2,18 @@ package com.hyt.commute
 
 import android.app.Activity
 import android.app.AlertDialog
-import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.provider.Settings
 import android.widget.Toast
-import androidx.core.content.FileProvider
 import org.json.JSONObject
-import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** GitHub Releases 에 올라온 최신 APK 를 확인하고 내려받아 설치 화면을 띄움 (설치 확인은 사용자가 한 번 눌러야 함) */
+/** GitHub Releases 의 최신 버전을 확인. 새 버전이 있으면 표시하고, 받기는 브라우저(다운로드)로 넘김 */
 object Update {
-    private fun newer(remote: String, local: String): Boolean {
+    private const val REPO = "gnsxkr158-tech/hanyang-commute"
+
+    fun newer(remote: String, local: String): Boolean {
         val a = remote.trim().removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
         val b = local.trim().removePrefix("v").split(".").map { it.toIntOrNull() ?: 0 }
         for (i in 0 until maxOf(a.size, b.size)) {
@@ -26,23 +24,27 @@ object Update {
         return false
     }
 
-    /** repo: "아이디/저장소" */
-    fun check(act: Activity, current: String, manual: Boolean) {
-        val repo = Prefs.getS(act, "repo").trim()
-        if (repo.isEmpty() || !repo.contains("/")) {
-            if (manual) Toast.makeText(act, "설정 탭에서 업데이트 저장소(아이디/저장소)를 먼저 입력해 주세요", Toast.LENGTH_LONG).show()
-            return
-        }
+    /** 저장된 '새 버전' 정보가 현재 버전보다 높은지 */
+    fun pending(act: Activity, current: String): Boolean {
+        val tag = Prefs.getS(act, "updTag")
+        return tag.isNotEmpty() && newer(tag, current)
+    }
+
+    /**
+     * 새 버전 확인. 결과는 updTag/updUrl 에 저장하고 화면을 갱신.
+     * ask=true 이면 새 버전이 있을 때 바로 업데이트 창을 띄움.
+     */
+    fun check(act: Activity, current: String, manual: Boolean, ask: Boolean = manual) {
         Thread {
             try {
-                val c = URL("https://api.github.com/repos/$repo/releases/latest").openConnection() as HttpURLConnection
+                val c = URL("https://api.github.com/repos/$REPO/releases/latest").openConnection() as HttpURLConnection
                 c.setRequestProperty("User-Agent", "HanyangCommute")
                 c.setRequestProperty("Accept", "application/vnd.github+json")
                 c.connectTimeout = 10_000
                 c.readTimeout = 15_000
                 if (c.responseCode != 200) {
                     if (manual) act.runOnUiThread {
-                        Toast.makeText(act, "업데이트 확인 실패 (${c.responseCode}). 저장소가 Public 인지, 이름이 맞는지 확인해 주세요", Toast.LENGTH_LONG).show()
+                        Toast.makeText(act, "업데이트 확인 실패 (${c.responseCode})", Toast.LENGTH_LONG).show()
                     }
                     return@Thread
                 }
@@ -54,16 +56,15 @@ object Update {
                     val a = assets.getJSONObject(i)
                     if (a.optString("name").endsWith(".apk")) url = a.optString("browser_download_url")
                 }
+                val has = url.isNotEmpty() && newer(tag, current)
+                Prefs.putS(act, "updTag", if (has) tag else "")
+                Prefs.putS(act, "updUrl", if (has) url else "")
                 act.runOnUiThread {
-                    if (url.isEmpty() || !newer(tag, current)) {
+                    Bus.onChange?.invoke()
+                    if (!has) {
                         if (manual) Toast.makeText(act, "최신 버전이에요 (v$current)", Toast.LENGTH_SHORT).show()
-                    } else {
-                        AlertDialog.Builder(act)
-                            .setTitle("새 버전 ${tag.removePrefix("v")}")
-                            .setMessage("지금 v$current 를 쓰고 있어요. 새 버전을 받아서 설치할까요?")
-                            .setPositiveButton("업데이트") { _, _ -> download(act, url) }
-                            .setNegativeButton("나중에", null)
-                            .show()
+                    } else if (ask) {
+                        prompt(act, current)
                     }
                 }
             } catch (e: Exception) {
@@ -72,50 +73,20 @@ object Update {
         }.start()
     }
 
-    private fun download(act: Activity, url: String) {
-        if (!act.packageManager.canRequestPackageInstalls()) {
-            Toast.makeText(act, "'이 앱에서 설치 허용'을 켠 뒤 다시 업데이트를 눌러 주세요", Toast.LENGTH_LONG).show()
-            act.startActivity(
-                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${act.packageName}"))
-            )
+    fun prompt(act: Activity, current: String) {
+        val tag = Prefs.getS(act, "updTag")
+        val url = Prefs.getS(act, "updUrl")
+        if (tag.isEmpty() || url.isEmpty()) {
+            check(act, current, true)
             return
         }
-        Toast.makeText(act, "내려받는 중… 잠시만 기다려 주세요", Toast.LENGTH_LONG).show()
-        Thread {
-            try {
-                val dir = File(act.cacheDir, "updates").apply { mkdirs() }
-                dir.listFiles()?.forEach { it.delete() }
-                val f = File(dir, "update.apk")
-                var u = url
-                var conn: HttpURLConnection
-                var hops = 0
-                while (true) { // GitHub 은 다운로드 주소를 다른 서버로 넘기므로 리다이렉트를 직접 따라감
-                    conn = URL(u).openConnection() as HttpURLConnection
-                    conn.instanceFollowRedirects = false
-                    conn.setRequestProperty("User-Agent", "HanyangCommute")
-                    conn.connectTimeout = 15_000
-                    conn.readTimeout = 30_000
-                    val code = conn.responseCode
-                    if (code in 301..303 || code == 307 || code == 308) {
-                        u = conn.getHeaderField("Location") ?: break
-                        conn.disconnect()
-                        if (++hops > 5) break
-                    } else break
-                }
-                if (conn.responseCode != 200) throw RuntimeException("다운로드 실패 (${conn.responseCode})")
-                conn.inputStream.use { i -> f.outputStream().use { o -> i.copyTo(o) } }
-                val uri = FileProvider.getUriForFile(act, "${act.packageName}.fileprovider", f)
-                act.runOnUiThread {
-                    act.startActivity(
-                        Intent(Intent.ACTION_VIEW).apply {
-                            setDataAndType(uri, "application/vnd.android.package-archive")
-                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
-                        }
-                    )
-                }
-            } catch (e: Exception) {
-                act.runOnUiThread { Toast.makeText(act, "업데이트 실패: ${e.message}", Toast.LENGTH_LONG).show() }
+        AlertDialog.Builder(act)
+            .setTitle("새 버전 ${tag.removePrefix("v")}")
+            .setMessage("지금 v$current 를 쓰고 있어요. 새 버전을 내려받을까요?\n\n내려받은 뒤 알림이나 다운로드 목록에서 파일을 눌러 설치해 주세요.")
+            .setPositiveButton("내려받기") { _, _ ->
+                act.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
             }
-        }.start()
+            .setNegativeButton("나중에", null)
+            .show()
     }
 }

@@ -47,7 +47,7 @@ class MainActivity : Activity() {
     private val tabBtns = arrayOfNulls<Button>(4)
     private var openPanel = -1
     private lateinit var lateSw: Switch
-    private lateinit var repoEt: EditText
+    private lateinit var updTv: TextView
     private lateinit var idEt: EditText
     private lateinit var pwEt: EditText
     private lateinit var radiusEt: EditText
@@ -273,9 +273,9 @@ class MainActivity : Activity() {
         refresh()
         Remind.scheduleAll(this)
         val nowMs = System.currentTimeMillis()
-        if (nowMs - (Prefs.getS(this, "updChk").toLongOrNull() ?: 0L) > 6 * 3600_000L) {
+        if (nowMs - (Prefs.getS(this, "updChk").toLongOrNull() ?: 0L) > 30 * 60_000L) {
             Prefs.putS(this, "updChk", nowMs.toString())
-            Update.check(this, versionName(), false) // 6시간에 한 번 새 버전 확인
+            Update.check(this, versionName(), false) // 30분에 한 번 새 버전 확인 (표시만)
         }
         // 앱이 열려 있는 동안 GPS로 회사까지 거리를 계속 확인 → 허용 반경 이내일 때만 버튼 활성화
         if (has(Manifest.permission.ACCESS_FINE_LOCATION)) {
@@ -469,10 +469,21 @@ class MainActivity : Activity() {
         } else {
             top.addView(label("한양기술공업", 18f, navy, true), LinearLayout.LayoutParams(0, -2, 1f))
         }
-        top.addView(label("v${versionName()}", 12f, navy).apply {
+        val verBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.END
+        }
+        verBox.addView(label("v${versionName()}", 12f, navy).apply {
             background = rounded(Color.parseColor("#EEF1FA"), 12)
             setPadding(dp(10), dp(4), dp(10), dp(4))
         })
+        updTv = label("업데이트가 필요함", 10.5f, Color.parseColor("#D64545"), true).apply {
+            visibility = View.GONE
+            setPadding(0, dp(3), dp(2), 0)
+            setOnClickListener { Update.prompt(this@MainActivity, versionName()) }
+        }
+        verBox.addView(updTv)
+        top.addView(verBox)
         header.addView(top, lp())
         header.addView(label("출퇴근", 14f, subGray), lp(22))
         header.addView(
@@ -637,11 +648,8 @@ class MainActivity : Activity() {
         p3.addView(weekendSw, lp(6))
         p3.addView(remindSw, lp(6))
         p3.addView(sectionTitle("앱 업데이트"))
-        p3.addView(label("GitHub 저장소 이름을 '아이디/저장소' 형식으로 입력하면, 앱을 열 때 새 버전을 찾아 알려 줘요.", 12f, subGray))
-        repoEt = field("예: myid/hanyang-commute")
-        p3.addView(repoEt, lp(6))
+        p3.addView(label("새 버전이 있으면 화면 맨 위 버전 아래에 '업데이트가 필요함'이 표시돼요.", 12f, subGray))
         p3.addView(outlineBtn("지금 업데이트 확인") {
-            saveSettings(false)
             Update.check(this, versionName(), true)
         }, lp(8, -1, dp(46)))
         p3.addView(filledBtn("저장") { saveSettings(true) }, lp(14, -1, dp(46)))
@@ -656,7 +664,6 @@ class MainActivity : Activity() {
 
         // 저장된 값 반영 (스위치 리스너는 반영 후에 연결)
         idEt.setText(Prefs.getS(this, "uid"))
-        repoEt.setText(Prefs.getS(this, "repo"))
         addrEt.setText(Prefs.getS(this, "addr"))
         radiusEt.setText(Prefs.getI(this, "radius", 50).toString())
         hourEt.setText(Prefs.getI(this, "exitHour", 17).toString())
@@ -735,6 +742,7 @@ class MainActivity : Activity() {
         val lat = Prefs.getS(this, "lat")
         val lng = Prefs.getS(this, "lng")
         learnIfNear()
+        updTv.visibility = if (Update.pending(this, versionName())) View.VISIBLE else View.GONE
         if (!addrEt.hasFocus()) addrEt.setText(Prefs.getS(this, "addr"))
         val spots = Spots.all(this)
         locTv.text = if (spots.isEmpty()) "알고 있는 출근지: 아직 없음 (출근지 근처에서 앱을 열면 자동으로 기억해요)"
@@ -776,7 +784,6 @@ class MainActivity : Activity() {
     // ---------------- 설정 ----------------
     private fun saveSettings(toast: Boolean) {
         Prefs.putS(this, "uid", idEt.text.toString().trim())
-        Prefs.putS(this, "repo", repoEt.text.toString().trim())
         val pw = pwEt.text.toString()
         if (pw.isNotEmpty()) {
             Prefs.putS(this, "pw", pw)

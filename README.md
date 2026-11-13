@@ -66,3 +66,7 @@
 - 앱은 설정 탭의 "업데이트 저장소"(아이디/저장소)를 보고, 열 때(6시간에 한 번) 새 버전을 찾아 설치 화면까지 띄웁니다. 저장소는 Public 이어야 합니다.
 - 고정 서명키(app/release.jks)를 사용하므로 이후 버전은 기존 앱 위에 덮어 설치됩니다.
 - 새 버전 올릴 때는 app/build.gradle.kts 의 versionCode/versionName 을 올려야 합니다.
+
+## v1.6
+- 업데이트 저장소를 코드에 고정(gnsxkr158-tech/hanyang-commute), 입력칸 제거.
+- 새 버전이 있으면 화면 맨 위 버전 아래에 "업데이트가 필요함" 표시(누르면 내려받기). 앱 안 설치 기능(REQUEST_INSTALL_PACKAGES)은 제거하고 브라우저 다운로드로 대체.
