@@ -375,7 +375,6 @@ class MainActivity : Activity() {
         val last = if (nearAt > 0) SimpleDateFormat("HH:mm:ss", Locale.KOREA).format(Date(nearAt)) else "아직 없음"
         locStatTv.text = "${curLine(loc)}\n${placeTv.text}\n${distTv.text}\n마지막 확인: $last"
     }
-    }
 
     /** 사이트가 '근처'로 인정한 순간의 폰 좌표를 출근지명과 함께 기억 (자동 출근 알림/지오펜스에 사용) */
     private fun learnIfNear() {
