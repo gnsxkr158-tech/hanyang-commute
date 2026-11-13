@@ -185,6 +185,12 @@ class MainActivity : Activity() {
             Prefs.putS(this, "nearAt", "0")
             Prefs.putB(this, "mig113", true)
         }
+        if (!Prefs.getB(this, "mig120", false)) { // 이름만으로 합쳐져 섞인 기억 장소를 한 번 비움
+            Prefs.putS(this, "spots", "[]")
+            Prefs.putS(this, "nearName", "")
+            Prefs.putS(this, "nearAt", "0")
+            Prefs.putB(this, "mig120", true)
+        }
         buildUi()
         refresh()
         if (!Prefs.hasCreds(this)) showPanel(1)
@@ -348,7 +354,7 @@ class MainActivity : Activity() {
             }
             fresh && name.isNotEmpty() -> {
                 val out = kind == "out"
-                placeTv.text = (if (out) "퇴근지: " else "출근지: ") + Spots.label(this, name)
+                placeTv.text = (if (out) "퇴근지: " else "출근지: ") + name
                 distTv.text = "지정된 ${if (out) "퇴근지" else "출근지"} 근처예요 · ${if (out) "퇴근" else "출근"}을 찍을 수 있어요$acc"
                 setDot(Color.parseColor("#14A37F")); setBtns(!out, out)
             }
@@ -385,25 +391,8 @@ class MainActivity : Activity() {
         if (Gate.isMock(loc) || loc.accuracy > 50f) return
         lastLearnAt = nearAt
         if (Spots.learn(this, name, loc.latitude, loc.longitude)) {
-            reverseSpotAddress(name, loc.latitude, loc.longitude)
             if (Prefs.getB(this, "auto", false)) Geo.register(this)
         }
-    }
-
-    @Suppress("DEPRECATION")
-    private fun reverseSpotAddress(name: String, lat: Double, lng: Double) {
-        if (!Geocoder.isPresent()) return
-        Thread {
-            try {
-                val r = Geocoder(this, Locale.KOREA).getFromLocation(lat, lng, 1)
-                val line = r?.firstOrNull()?.getAddressLine(0)
-                if (!line.isNullOrBlank()) {
-                    Spots.setAddr(this, name, line.removePrefix("대한민국").trim())
-                    runOnUiThread { refresh() }
-                }
-            } catch (_: Exception) {
-            }
-        }.start()
     }
 
     private var lastSync = 0L

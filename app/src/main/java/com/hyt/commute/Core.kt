@@ -118,6 +118,12 @@ object Spots {
     }
 
     /** 같은 이름이면 좌표를 평균내어 정확도를 높이고, 새 이름이면 추가. 새로 추가되면 true */
+    private fun far(a: Double, b: Double, c: Double, d: Double): Double {
+        val r = FloatArray(1)
+        android.location.Location.distanceBetween(a, b, c, d, r)
+        return r[0].toDouble()
+    }
+
     fun learn(c: Context, name: String, lat: Double, lng: Double): Boolean {
         val arr = try {
             JSONArray(Prefs.getS(c, "spots", "[]"))
@@ -126,7 +132,7 @@ object Spots {
         }
         for (i in 0 until arr.length()) {
             val o = arr.getJSONObject(i)
-            if (o.getString("n") == name) {
+            if (o.getString("n") == name && far(o.getDouble("lat"), o.getDouble("lng"), lat, lng) < 150.0) {
                 val n = o.optInt("c", 1)
                 val k = minOf(n, 20)
                 o.put("lat", (o.getDouble("lat") * k + lat) / (k + 1))
