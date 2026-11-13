@@ -50,7 +50,6 @@ class MainActivity : Activity() {
     private lateinit var updTv: TextView
     private lateinit var idEt: EditText
     private lateinit var pwEt: EditText
-    private lateinit var locTv: TextView
     private lateinit var locStatTv: TextView
     private lateinit var autoSw: Switch
     private lateinit var weekendSw: Switch
@@ -372,15 +371,10 @@ class MainActivity : Activity() {
                 setDot(gray); setBtns(false)
             }
         }
-        // 위치 확인 탭: 현재 위치 / 판단 결과 / 마지막 확인 시각 / 기억한 출근지(현재 위치와의 거리)
+        // 위치 확인 탭: 현재 위치 / 판단 결과 / 마지막 확인 시각
         val last = if (nearAt > 0) SimpleDateFormat("HH:mm:ss", Locale.KOREA).format(Date(nearAt)) else "아직 없음"
         locStatTv.text = "${curLine(loc)}\n${placeTv.text}\n${distTv.text}\n마지막 확인: $last"
-        val spots = Spots.all(this)
-        locTv.text = if (spots.isEmpty()) "아직 없어요 (출근지 근처에서 앱을 열면 자동으로 기억해요)"
-        else spots.joinToString("\n") {
-            val d = if (loc != null) " · 현재 위치에서 약 ${Gate.distance(it.lat, it.lng, loc)}m" else ""
-            (if (it.addr.isNotEmpty()) it.addr + " - " else "") + it.name + d
-        }
+    }
     }
 
     /** 사이트가 '근처'로 인정한 순간의 폰 좌표를 출근지명과 함께 기억 (자동 출근 알림/지오펜스에 사용) */
@@ -632,11 +626,7 @@ class MainActivity : Activity() {
         locStatTv = label("", 13f, ink)
         p2.addView(locStatTv, lp(10))
         p2.addView(outlineBtn("지금 위치 다시 확인") { syncNow(true) }, lp(10, -1, dp(46)))
-        p2.addView(sectionTitle("기억한 출근지 (자동 출근용)"))
-        p2.addView(label("사이트가 근처로 확인해 준 위치를 앱이 자동으로 기억해요. 기억한 곳에 도착하면 자동 출근에 써요.", 12f, subGray))
-        locTv = label("", 13f, ink)
-        p2.addView(locTv, lp(6))
-        p2.addView(label("출퇴근은 지정된 위치 반경 50m 이내에서만 가능해요 (자동 적용).", 12f, subGray), lp(10))
+        p2.addView(label("출퇴근은 사이트가 지정한 위치 근처에서만 가능해요.", 12f, subGray), lp(10))
 
         // ----- 탭 4: 설정 -----
         val p3 = panels[3]!!
