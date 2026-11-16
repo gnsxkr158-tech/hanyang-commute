@@ -4,7 +4,6 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
-import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -55,7 +54,6 @@ class MainActivity : Activity() {
     private lateinit var autoSw: Switch
     private lateinit var weekendSw: Switch
     private lateinit var autoOutSw: Switch
-    private lateinit var inTimeBtn: Button
     private lateinit var pick19: Button
     private lateinit var pick22: Button
     private lateinit var pickTv: TextView
@@ -663,9 +661,6 @@ class MainActivity : Activity() {
         weekendSw = Switch(this).apply { text = "주말에는 자동 출퇴근·알림 끄기" }
         remindSw = Switch(this).apply { text = "알림: 출근 마감 10분 전 · 퇴근 시작 시각" }
         autoOutSw = Switch(this).apply { text = "퇴근 시작 시각 이후 퇴근지명이 뜨면 자동 퇴근" }
-        inTimeBtn = outlineBtn("") { pickTime(true) }
-        p3.addView(label("출근 마감 시각 (퇴근 시각은 메인 화면의 19시/22시 퇴근 버튼으로 오늘 하루씩 고르세요)", 12f, subGray))
-        p3.addView(inTimeBtn, lp(6, -1, dp(46)))
         p3.addView(autoSw, lp(10))
         p3.addView(lateSw, lp(6))
         p3.addView(autoOutSw, lp(6))
@@ -713,7 +708,6 @@ class MainActivity : Activity() {
     }
 
     private fun refreshTimeTexts() {
-        inTimeBtn.text = "출근 마감 시각: ${Sched.fmt(Sched.inLimit(this))}  (눌러서 변경)"
         lateSw.text = "${Sched.fmt(Sched.inLimit(this))} 이후 도착하면 자동 출근 대신 알림만"
         remindSw.text = "알림: 출근 마감 10분 전(${Sched.fmt(maxOf(Sched.inLimit(this) - 10, 0))}) · 퇴근 시각"
         autoOutSw.text = "고른 퇴근 시각(19시/22시) 이후 퇴근지명이 뜨면 자동 퇴근"
@@ -747,17 +741,6 @@ class MainActivity : Activity() {
         }
         pickTv.text = if (sel > 0) "오늘 ${sel}시 이후 퇴근지명이 뜨면 자동으로 퇴근을 찍어요 (다시 누르면 해제)"
         else "오늘 퇴근 시각을 고르면 그 시각 이후 자동으로 퇴근을 찍어요"
-    }
-
-    private fun pickTime(forIn: Boolean) {
-        val cur = if (forIn) Sched.inLimit(this) else Sched.outFrom(this)
-        TimePickerDialog(this, { _, h, m ->
-            Prefs.putI(this, if (forIn) "inLimitMin" else "outFromMin", h * 60 + m)
-            refreshTimeTexts()
-            Remind.scheduleAll(this)
-            AutoWatch.schedule(this)
-            Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()
-        }, cur / 60, cur % 60, true).show()
     }
 
     private fun showPanel(i: Int) {

@@ -13,7 +13,7 @@ import java.util.Calendar
 
 /** 출근 마감 / 퇴근 시작 시각 설정과 '지금 자동으로 찍어야 하는지' 판단 */
 object Sched {
-    fun inLimit(c: Context): Int = Prefs.getI(c, "inLimitMin", 8 * 60)
+    fun inLimit(c: Context): Int = 8 * 60 // 출근 마감 08:00 고정
     /** 오늘 고른 퇴근 시각이 있는지 (19시/22시 버튼) */
     fun picked(c: Context): Boolean = Prefs.getS(c, "outPickDate") == Util.today()
     fun outFrom(c: Context): Int = if (picked(c)) Prefs.getI(c, "outPickMin", 17 * 60) else 17 * 60
