@@ -8,16 +8,12 @@ import android.content.Intent
 import android.os.Build
 import java.util.Calendar
 
-/** 출근 10분 전(07:50) / 퇴근(17:00) 알림 */
+/** 출근 마감 10분 전 / 퇴근 시작 시각 알림 */
 object Remind {
     const val IN = 1
     const val OUT = 2
 
-    // 출근 마감 08:00 의 10분 전, 퇴근 17:00 정각
-    private const val IN_H = 7
-    private const val IN_M = 50
-    private const val OUT_H = 17
-    private const val OUT_M = 0
+    // 출근 마감 시각의 10분 전, 퇴근 시작 시각 정각 (설정에서 변경 가능)
 
     private fun pi(c: Context, kind: Int): PendingIntent = PendingIntent.getBroadcast(
         c.applicationContext, 100 + kind,
@@ -43,9 +39,8 @@ object Remind {
 
     fun schedule(c: Context, kind: Int) {
         val am = c.getSystemService(AlarmManager::class.java)
-        val h = if (kind == IN) IN_H else OUT_H
-        val m = if (kind == IN) IN_M else OUT_M
-        val t = nextTime(c, h, m)
+        val tm = if (kind == IN) maxOf(Sched.inLimit(c) - 10, 0) else Sched.outFrom(c)
+        val t = nextTime(c, tm / 60, tm % 60)
         try {
             if (canExact(c)) am.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi(c, kind))
             else am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, t, pi(c, kind)) // 정확도 낮음(수 분 지연 가능)
@@ -82,7 +77,7 @@ object Remind {
         if (kind == IN) {
             Util.notify(
                 c, "⏰ 출근 10분 전이에요",
-                "08:00까지 출근을 찍어야 해요. 회사 ${Prefs.getI(c, "radius", 50)}m 이내에서 앱의 [출근]을 눌러 주세요.", 3
+                "${Sched.fmt(Sched.inLimit(c))}까지 출근을 찍어야 해요. 회사 ${Prefs.getI(c, "radius", 50)}m 이내에서 앱의 [출근]을 눌러 주세요.", 3
             )
         } else {
             Util.notify(

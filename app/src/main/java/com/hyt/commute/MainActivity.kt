@@ -4,6 +4,7 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.app.AlertDialog
+import android.app.TimePickerDialog
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
@@ -54,6 +55,8 @@ class MainActivity : Activity() {
     private lateinit var autoSw: Switch
     private lateinit var weekendSw: Switch
     private lateinit var autoOutSw: Switch
+    private lateinit var inTimeBtn: Button
+    private lateinit var outTimeBtn: Button
     private lateinit var remindSw: Switch
     private lateinit var loginTv: TextView
     private lateinit var distTv: TextView
@@ -208,7 +211,7 @@ class MainActivity : Activity() {
         if (Prefs.getB(this, "askedExact", false)) return
         Prefs.putB(this, "askedExact", true)
         AlertDialog.Builder(this)
-            .setMessage("출근 10분 전(07:50)과 퇴근(17:00)에 정확한 시각으로 알림을 받으려면 '알람 및 리마인더' 권한을 허용해 주세요.")
+            .setMessage("출근 마감 10분 전과 퇴근 시작 시각에 정확한 시각으로 알림을 받으려면 '알람 및 리마인더' 권한을 허용해 주세요.")
             .setPositiveButton("설정 열기") { _, _ ->
                 try {
                     startActivity(
@@ -226,6 +229,7 @@ class MainActivity : Activity() {
         Bus.onChange = { runOnUiThread { refresh() } }
         refresh()
         Remind.scheduleAll(this)
+        try { AutoWatch.schedule(this) } catch (_: Throwable) { }
         try { UpdateJob.schedule(this); UpdateAlarm.schedule(this) } catch (_: Throwable) { } // 앱이 꺼져 있어도 새 버전 알림
         val nowMs = System.currentTimeMillis()
         if (nowMs - (Prefs.getS(this, "updChk").toLongOrNull() ?: 0L) > 30 * 60_000L) {
@@ -249,8 +253,8 @@ class MainActivity : Activity() {
     @SuppressLint("MissingPermission")
     private fun startLocationUpdates() {
         if (locCb != null || !has(Manifest.permission.ACCESS_FINE_LOCATION)) return
-        val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
-            .setMinUpdateIntervalMillis(2000L)
+        val req = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000L)
+            .setMinUpdateIntervalMillis(500L)
             .build()
         val cb = object : LocationCallback() {
             override fun onLocationResult(r: LocationResult) {
@@ -410,7 +414,23 @@ class MainActivity : Activity() {
         }
     }
 
+    private var lastAutoAt = 0L
+
+    /** 사이트가 출근지/퇴근지명을 채워 줬고 자동 처리 시간대면 바로 찍음 */
+    private fun autoStampIfDue() {
+        val d = Sched.due(this)
+        if (d == 0 || ClockService.running) return
+        val now = System.currentTimeMillis()
+        val at = Prefs.getS(this, "nearAt").toLongOrNull() ?: 0L
+        if (at == 0L || now - at > 90_000L || now - lastAutoAt < 60_000L) return
+        val kind = Prefs.getS(this, "nearKind")
+        if (Prefs.getS(this, "nearName").isEmpty() || (d == 1 && kind != "in") || (d == 2 && kind != "out")) return
+        lastAutoAt = now
+        ClockService.start(this, d, true, gate = false, near = true)
+    }
+
     private var lastSync = 0L
+
 
     private fun syncNow(force: Boolean) {
         if (!Prefs.hasCreds(this) || ClockService.running) return
@@ -627,10 +647,15 @@ class MainActivity : Activity() {
         val p3 = panels[3]!!
         p3.addView(label("자동 출퇴근 · 알림", 13f, subGray, true))
         autoSw = Switch(this).apply { text = "회사 도착 시 자동 출근" }
-        lateSw = Switch(this).apply { text = "08시 이후 도착하면 자동 출근 대신 알림만" }
+        lateSw = Switch(this).apply { text = "출근 마감 시각 이후 도착하면 자동 출근 대신 알림만" }
         weekendSw = Switch(this).apply { text = "주말에는 자동 출퇴근·알림 끄기" }
-        remindSw = Switch(this).apply { text = "알림: 출근 10분 전(07:50) · 퇴근(17:00)" }
-        autoOutSw = Switch(this).apply { text = "17시 이후 회사를 벗어나면 자동 퇴근" }
+        remindSw = Switch(this).apply { text = "알림: 출근 마감 10분 전 · 퇴근 시작 시각" }
+        autoOutSw = Switch(this).apply { text = "퇴근 시작 시각 이후 퇴근지명이 뜨면 자동 퇴근" }
+        inTimeBtn = outlineBtn("") { pickTime(true) }
+        outTimeBtn = outlineBtn("") { pickTime(false) }
+        p3.addView(label("출근 마감 시각 · 퇴근 시작 시각 (연장/야간근무면 퇴근 시각을 늦추세요)", 12f, subGray))
+        p3.addView(inTimeBtn, lp(6, -1, dp(46)))
+        p3.addView(outTimeBtn, lp(6, -1, dp(46)))
         p3.addView(autoSw, lp(10))
         p3.addView(lateSw, lp(6))
         p3.addView(autoOutSw, lp(6))
@@ -654,11 +679,11 @@ class MainActivity : Activity() {
         // 저장된 값 반영 (스위치 리스너는 반영 후에 연결)
         idEt.setText(Prefs.getS(this, "uid"))
         Prefs.putI(this, "radius", 50) // 허용 반경은 50m 고정
-        Prefs.putI(this, "exitHour", 17) // 자동 퇴근은 17시 이후 고정
+        refreshTimeTexts()
         autoSw.isChecked = Prefs.getB(this, "auto", false)
         weekendSw.isChecked = Prefs.getB(this, "skipWeekend", true)
         autoOutSw.isChecked = Prefs.getB(this, "autoOut", false)
-        autoOutSw.setOnCheckedChangeListener { _, on -> Prefs.putB(this, "autoOut", on) }
+        autoOutSw.setOnCheckedChangeListener { _, on -> Prefs.putB(this, "autoOut", on); AutoWatch.schedule(this) }
         lateSw.isChecked = Prefs.getB(this, "lateNotifyOnly", true)
         lateSw.setOnCheckedChangeListener { _, on -> Prefs.putB(this, "lateNotifyOnly", on) }
         autoSw.setOnCheckedChangeListener { _, on -> onAutoToggled(on) }
@@ -675,6 +700,25 @@ class MainActivity : Activity() {
                 askExactAlarmOnce()
             }
         }
+    }
+
+    private fun refreshTimeTexts() {
+        inTimeBtn.text = "출근 마감 시각: ${Sched.fmt(Sched.inLimit(this))}  (눌러서 변경)"
+        outTimeBtn.text = "퇴근 시작 시각: ${Sched.fmt(Sched.outFrom(this))}  (눌러서 변경)"
+        lateSw.text = "${Sched.fmt(Sched.inLimit(this))} 이후 도착하면 자동 출근 대신 알림만"
+        remindSw.text = "알림: 출근 마감 10분 전(${Sched.fmt(maxOf(Sched.inLimit(this) - 10, 0))}) · 퇴근(${Sched.fmt(Sched.outFrom(this))})"
+        autoOutSw.text = "${Sched.fmt(Sched.outFrom(this))} 이후 퇴근지명이 뜨면 자동 퇴근"
+    }
+
+    private fun pickTime(forIn: Boolean) {
+        val cur = if (forIn) Sched.inLimit(this) else Sched.outFrom(this)
+        TimePickerDialog(this, { _, h, m ->
+            Prefs.putI(this, if (forIn) "inLimitMin" else "outFromMin", h * 60 + m)
+            refreshTimeTexts()
+            Remind.scheduleAll(this)
+            AutoWatch.schedule(this)
+            Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()
+        }, cur / 60, cur % 60, true).show()
     }
 
     private fun showPanel(i: Int) {
@@ -714,6 +758,7 @@ class MainActivity : Activity() {
         }
         updateRange()
         learnIfNear()
+        autoStampIfDue()
         updTv.visibility = if (Update.pending(this, versionName())) View.VISIBLE else View.GONE
     }
 
@@ -759,7 +804,6 @@ class MainActivity : Activity() {
         }
         pwEt.setText("")
         Prefs.putI(this, "radius", 50)
-        Prefs.putI(this, "exitHour", 17)
         if (Prefs.getB(this, "auto", false)) Geo.register(this)
         if (toast) Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()
     }
@@ -768,11 +812,13 @@ class MainActivity : Activity() {
         if (!on) {
             Prefs.putB(this, "auto", false)
             Geo.unregister(this)
+            AutoWatch.schedule(this)
             return
         }
         saveSettings(false)
         ensureLocationPerms {
             Prefs.putB(this, "auto", true)
+            AutoWatch.schedule(this)
             Geo.register(this) { ok, m ->
                 runOnUiThread {
                     Toast.makeText(

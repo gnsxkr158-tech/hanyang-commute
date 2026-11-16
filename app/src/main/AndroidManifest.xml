@@ -59,6 +59,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".AutoWatchReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".RemindReceiver"
             android:exported="false" />
 

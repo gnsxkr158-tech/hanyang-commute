@@ -87,13 +87,14 @@ object Geo {
         }
         // 지오펜스는 100m 미만이면 인식이 불안정해서 '깨우는 용도'로 100m 이상 사용.
         // 실제 출근 가능 여부는 사이트가 폰 GPS로 판단합니다.
-        val radius = maxOf(Prefs.getI(app, "radius", 50), 100).toFloat()
+        val radius = maxOf(Prefs.getI(app, "radius", 50), 300).toFloat() // 차로 빠르게 지나가도 놓치지 않도록 넓게
         val builder = GeofencingRequest.Builder().setInitialTrigger(0) // 등록 시점에 이미 안이어도 바로 출근 안 찍음
         spots.take(90).forEachIndexed { i, sp ->
             builder.addGeofence(
                 Geofence.Builder()
                     .setRequestId("spot$i")
                     .setCircularRegion(sp.lat, sp.lng, radius)
+                    .setNotificationResponsiveness(0)
                     .setExpirationDuration(Geofence.NEVER_EXPIRE)
                     .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
                     .build()
@@ -128,9 +129,9 @@ class GeofenceReceiver : BroadcastReceiver() {
         when (ev.geofenceTransition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
                 if (Prefs.getS(c, "inDate") != today) {
-                    val limit = Prefs.getI(c, "inDeadline", 8)
-                    if (Prefs.getB(c, "lateNotifyOnly", true) && cal.get(Calendar.HOUR_OF_DAY) >= limit) {
-                        Util.notify(c, "자동 출근 건너뜀", "${limit}시가 지나서 자동으로 찍지 않았어요. 앱에서 직접 확인해 주세요.")
+                    val limit = Sched.inLimit(c)
+                    if (Prefs.getB(c, "lateNotifyOnly", true) && Sched.nowMin() >= limit) {
+                        Util.notify(c, "자동 출근 건너뜀", "${Sched.fmt(limit)}가 지나서 자동으로 찍지 않았어요. 앱에서 직접 확인해 주세요.")
                         return
                     }
                     // 사이트가 폰 GPS로 '지정된 출근지 근처'로 인정할 때까지 30초마다 최대 약 10분간 재확인
@@ -140,12 +141,11 @@ class GeofenceReceiver : BroadcastReceiver() {
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
                 // 회사를 벗어난 상태라 50m 규칙과 충돌하므로, 사용자가 따로 켠 경우에만 동작
                 if (Prefs.getB(c, "autoOut", false) && Prefs.getS(c, "outDate") != today) {
-                    val hour = cal.get(Calendar.HOUR_OF_DAY)
-                    val from = Prefs.getI(c, "exitHour", 17)
-                    if (hour >= from) {
+                    val from = Sched.outFrom(c)
+                    if (Sched.nowMin() >= from) {
                         ClockService.start(c, 2, true, gate = false)
                     } else {
-                        Util.notify(c, "자동 퇴근 건너뜀", "${from}시 이전이라 퇴근을 찍지 않았어요.")
+                        Util.notify(c, "자동 퇴근 건너뜀", "${Sched.fmt(from)} 이전이라 퇴근을 찍지 않았어요.")
                     }
                 }
             }
@@ -163,6 +163,7 @@ class BootReceiver : BroadcastReceiver() {
             Geo.register(c)
         }
         Remind.scheduleAll(c)
+        try { AutoWatch.schedule(c) } catch (_: Throwable) { }
         try { UpdateJob.schedule(c) } catch (_: Throwable) { }
         try { UpdateAlarm.schedule(c) } catch (_: Throwable) { }
     }

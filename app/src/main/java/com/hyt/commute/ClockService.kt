@@ -28,7 +28,7 @@ class ClockService : Service() {
         fun start(
             c: Context, action: Int, skipIfDone: Boolean,
             gate: Boolean = true, retry: Boolean = false, remind: Int = 0,
-            dry: Boolean = false, near: Boolean = false
+            dry: Boolean = false, near: Boolean = false, quiet: Boolean = false
         ) {
             val i = Intent(c, ClockService::class.java)
                 .putExtra("action", action)
@@ -38,6 +38,7 @@ class ClockService : Service() {
                 .putExtra("remind", remind)
                 .putExtra("dry", dry)
                 .putExtra("near", near)
+                .putExtra("quiet", quiet)
             ContextCompat.startForegroundService(c, i)
         }
     }
@@ -52,6 +53,7 @@ class ClockService : Service() {
         val remind = intent?.getIntExtra("remind", 0) ?: 0
         val dry = intent?.getBooleanExtra("dry", false) ?: false
         val near = intent?.getBooleanExtra("near", false) ?: false
+        val quiet = intent?.getBooleanExtra("quiet", false) ?: false
         val label = when (action) {
             1 -> "출근"
             2 -> "퇴근"
@@ -105,8 +107,13 @@ class ClockService : Service() {
                 handler.postDelayed({ runIt() }, 30_000)
             } else {
                 try {
-                    if (dry) handleDry(label, res) else handle(action, label, res, remind)
+                    if (quiet && !res.ok && (action == 1 || action == 2)) {
+                        // 백그라운드 자동 확인: 아직 출근지/퇴근지명이 안 떴거나 일시 실패면 조용히 넘어감 (2분 뒤 다시 확인)
+                        if (!res.notNear) Prefs.putS(applicationContext, "msg", "${Util.now().substring(11)} 자동 확인: ${res.msg}")
+                        Bus.onChange?.invoke()
+                    } else if (dry) handleDry(label, res) else handle(action, label, res, remind)
                 } finally {
+                    stopWarm()
                     if (wl.isHeld) wl.release()
                     running = false
                     stopForeground(STOP_FOREGROUND_REMOVE)
@@ -114,6 +121,7 @@ class ClockService : Service() {
                 }
             }
         }
+        warmGps()
         runIt = { ClockRunner(applicationContext, runAct, skip, near && !dry, finishUp).start() }
 
         if (dry || !gate || near) {
@@ -127,6 +135,30 @@ class ClockService : Service() {
     }
 
     private val handler = Handler(Looper.getMainLooper())
+    private var warmCb: com.google.android.gms.location.LocationCallback? = null
+
+    /** 사이트(웹뷰)가 GPS를 빨리 읽도록, 처리하는 동안 폰 GPS를 1초 간격 고정밀로 미리 켜 둠 */
+    @android.annotation.SuppressLint("MissingPermission")
+    private fun warmGps() {
+        try {
+            if (checkSelfPermission(android.Manifest.permission.ACCESS_FINE_LOCATION) != android.content.pm.PackageManager.PERMISSION_GRANTED) return
+            val cb = object : com.google.android.gms.location.LocationCallback() {}
+            warmCb = cb
+            val req = com.google.android.gms.location.LocationRequest.Builder(com.google.android.gms.location.Priority.PRIORITY_HIGH_ACCURACY, 1000L)
+                .setMinUpdateIntervalMillis(500L).build()
+            com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(this)
+                .requestLocationUpdates(req, cb, Looper.getMainLooper())
+        } catch (_: Throwable) {
+        }
+    }
+
+    private fun stopWarm() {
+        try {
+            warmCb?.let { com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(this).removeLocationUpdates(it) }
+        } catch (_: Throwable) {
+        }
+        warmCb = null
+    }
 
     /** (예전 방식) 내가 등록한 좌표 반경 안일 때만 onOk 실행 */
     private fun checkLocation(tries: Int, onOk: () -> Unit, onFail: (String) -> Unit) {
