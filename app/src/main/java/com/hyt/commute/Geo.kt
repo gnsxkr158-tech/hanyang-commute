@@ -140,7 +140,7 @@ class GeofenceReceiver : BroadcastReceiver() {
             }
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
                 // 회사를 벗어난 상태라 50m 규칙과 충돌하므로, 사용자가 따로 켠 경우에만 동작
-                if (Prefs.getB(c, "autoOut", false) && Prefs.getS(c, "outDate") != today) {
+                if (Prefs.getB(c, "autoOut", false) && Sched.picked(c) && Prefs.getS(c, "outDate") != today) {
                     val from = Sched.outFrom(c)
                     if (Sched.nowMin() >= from) {
                         ClockService.start(c, 2, true, gate = false)

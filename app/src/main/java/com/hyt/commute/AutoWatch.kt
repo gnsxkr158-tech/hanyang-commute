@@ -14,7 +14,9 @@ import java.util.Calendar
 /** 출근 마감 / 퇴근 시작 시각 설정과 '지금 자동으로 찍어야 하는지' 판단 */
 object Sched {
     fun inLimit(c: Context): Int = Prefs.getI(c, "inLimitMin", 8 * 60)
-    fun outFrom(c: Context): Int = Prefs.getI(c, "outFromMin", 17 * 60)
+    /** 오늘 고른 퇴근 시각이 있는지 (19시/22시 버튼) */
+    fun picked(c: Context): Boolean = Prefs.getS(c, "outPickDate") == Util.today()
+    fun outFrom(c: Context): Int = if (picked(c)) Prefs.getI(c, "outPickMin", 17 * 60) else 17 * 60
     fun fmt(m: Int): String = "%02d:%02d".format(m / 60, m % 60)
     fun nowMin(): Int {
         val cal = Calendar.getInstance()
@@ -35,7 +37,7 @@ object Sched {
             val end = if (Prefs.getB(c, "lateNotifyOnly", true)) inLimit(c) else 12 * 60
             if (now >= 5 * 60 && now < end) return 1
         }
-        if (Prefs.getB(c, "autoOut", false) && Prefs.getS(c, "inDate") == today &&
+        if (Prefs.getB(c, "autoOut", false) && picked(c) && Prefs.getS(c, "inDate") == today &&
             Prefs.getS(c, "outDate") != today && now >= outFrom(c)
         ) return 2
         return 0
@@ -57,7 +59,7 @@ object AutoWatch {
             return
         }
         var delay = if (Sched.due(app) != 0) 2 * 60_000L else 10 * 60_000L
-        if (Prefs.getB(app, "autoOut", false)) {
+        if (Prefs.getB(app, "autoOut", false) && Sched.picked(app)) {
             val untilOut = (Sched.outFrom(app) - Sched.nowMin()) * 60_000L
             if (untilOut in 1 until delay) delay = untilOut
         }
@@ -83,7 +85,7 @@ object AutoWatch {
         val d = Sched.due(app)
         if (d == 0) {
             val now = System.currentTimeMillis()
-            if (Prefs.getB(app, "autoOut", false) && !Sched.weekendOff(app) && Prefs.hasCreds(app) &&
+            if (Prefs.getB(app, "autoOut", false) && Sched.picked(app) && !Sched.weekendOff(app) && Prefs.hasCreds(app) &&
                 Sched.nowMin() >= Sched.outFrom(app) && Prefs.getS(app, "outDate") != Util.today() &&
                 Prefs.getS(app, "inDate") != Util.today() && !ClockService.running &&
                 now - (Prefs.getS(app, "tickSync").toLongOrNull() ?: 0L) > 30 * 60_000L

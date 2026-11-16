@@ -56,7 +56,9 @@ class MainActivity : Activity() {
     private lateinit var weekendSw: Switch
     private lateinit var autoOutSw: Switch
     private lateinit var inTimeBtn: Button
-    private lateinit var outTimeBtn: Button
+    private lateinit var pick19: Button
+    private lateinit var pick22: Button
+    private lateinit var pickTv: TextView
     private lateinit var remindSw: Switch
     private lateinit var loginTv: TextView
     private lateinit var distTv: TextView
@@ -228,6 +230,7 @@ class MainActivity : Activity() {
         super.onResume()
         Bus.onChange = { runOnUiThread { refresh() } }
         refresh()
+        refreshPick()
         Remind.scheduleAll(this)
         try { AutoWatch.schedule(this) } catch (_: Throwable) { }
         try { UpdateJob.schedule(this); UpdateAlarm.schedule(this) } catch (_: Throwable) { } // 앱이 꺼져 있어도 새 버전 알림
@@ -585,6 +588,15 @@ class MainActivity : Activity() {
         row.addView(inBtn, LinearLayout.LayoutParams(0, dp(64), 1f).apply { rightMargin = dp(6) })
         row.addView(outBtn, LinearLayout.LayoutParams(0, dp(64), 1f).apply { leftMargin = dp(6) })
         body.addView(row, lp(14))
+        // 오늘 퇴근 시각 고르기: 고른 시각 이후 퇴근지명이 뜨면 자동 퇴근
+        val prow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        pick19 = outlineBtn("19시 퇴근") { pickOut(19) }
+        pick22 = outlineBtn("22시 퇴근") { pickOut(22) }
+        prow.addView(pick19, LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(6) })
+        prow.addView(pick22, LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(6) })
+        body.addView(prow, lp(8))
+        pickTv = label("", 12f, subGray).apply { gravity = Gravity.CENTER }
+        body.addView(pickTv, lp(4))
         setBtns(false) // 회사 허용 반경 이내로 확인되기 전까지는 비활성
 
         msgTv = label("", 13f, subGray).apply { gravity = Gravity.CENTER }
@@ -652,10 +664,8 @@ class MainActivity : Activity() {
         remindSw = Switch(this).apply { text = "알림: 출근 마감 10분 전 · 퇴근 시작 시각" }
         autoOutSw = Switch(this).apply { text = "퇴근 시작 시각 이후 퇴근지명이 뜨면 자동 퇴근" }
         inTimeBtn = outlineBtn("") { pickTime(true) }
-        outTimeBtn = outlineBtn("") { pickTime(false) }
-        p3.addView(label("출근 마감 시각 · 퇴근 시작 시각 (연장/야간근무면 퇴근 시각을 늦추세요)", 12f, subGray))
+        p3.addView(label("출근 마감 시각 (퇴근 시각은 메인 화면의 19시/22시 퇴근 버튼으로 오늘 하루씩 고르세요)", 12f, subGray))
         p3.addView(inTimeBtn, lp(6, -1, dp(46)))
-        p3.addView(outTimeBtn, lp(6, -1, dp(46)))
         p3.addView(autoSw, lp(10))
         p3.addView(lateSw, lp(6))
         p3.addView(autoOutSw, lp(6))
@@ -704,10 +714,39 @@ class MainActivity : Activity() {
 
     private fun refreshTimeTexts() {
         inTimeBtn.text = "출근 마감 시각: ${Sched.fmt(Sched.inLimit(this))}  (눌러서 변경)"
-        outTimeBtn.text = "퇴근 시작 시각: ${Sched.fmt(Sched.outFrom(this))}  (눌러서 변경)"
         lateSw.text = "${Sched.fmt(Sched.inLimit(this))} 이후 도착하면 자동 출근 대신 알림만"
-        remindSw.text = "알림: 출근 마감 10분 전(${Sched.fmt(maxOf(Sched.inLimit(this) - 10, 0))}) · 퇴근(${Sched.fmt(Sched.outFrom(this))})"
-        autoOutSw.text = "${Sched.fmt(Sched.outFrom(this))} 이후 퇴근지명이 뜨면 자동 퇴근"
+        remindSw.text = "알림: 출근 마감 10분 전(${Sched.fmt(maxOf(Sched.inLimit(this) - 10, 0))}) · 퇴근 시각"
+        autoOutSw.text = "고른 퇴근 시각(19시/22시) 이후 퇴근지명이 뜨면 자동 퇴근"
+        refreshPick()
+    }
+
+    /** 오늘 퇴근 시각 선택(19시/22시). 같은 버튼을 다시 누르면 선택 해제 */
+    private fun pickOut(hour: Int) {
+        val on = Sched.picked(this) && Prefs.getI(this, "outPickMin", 0) == hour * 60
+        if (on) {
+            Prefs.putS(this, "outPickDate", "")
+        } else {
+            Prefs.putS(this, "outPickDate", Util.today())
+            Prefs.putI(this, "outPickMin", hour * 60)
+            if (!Prefs.getB(this, "autoOut", false)) {
+                Prefs.putB(this, "autoOut", true)
+                autoOutSw.isChecked = true
+            }
+        }
+        refreshPick()
+        Remind.scheduleAll(this)
+        AutoWatch.schedule(this)
+    }
+
+    private fun refreshPick() {
+        val sel = if (Sched.picked(this)) Prefs.getI(this, "outPickMin", 0) / 60 else -1
+        for ((b, h) in listOf(pick19 to 19, pick22 to 22)) {
+            val on = sel == h
+            b.background = rounded(if (on) navy else Color.parseColor("#EEF1FA"), 16)
+            b.setTextColor(if (on) Color.WHITE else navy)
+        }
+        pickTv.text = if (sel > 0) "오늘 ${sel}시 이후 퇴근지명이 뜨면 자동으로 퇴근을 찍어요 (다시 누르면 해제)"
+        else "오늘 퇴근 시각을 고르면 그 시각 이후 자동으로 퇴근을 찍어요"
     }
 
     private fun pickTime(forIn: Boolean) {
