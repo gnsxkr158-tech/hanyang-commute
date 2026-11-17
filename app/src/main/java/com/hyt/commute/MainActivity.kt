@@ -78,6 +78,7 @@ class MainActivity : Activity() {
     private var lastLearnAt = 0L
     private var locCb: LocationCallback? = null
     private var askedLoc = false
+    private var holdPerms = false
     private val fused by lazy { LocationServices.getFusedLocationProviderClient(this) }
     private var afterPerm: (() -> Unit)? = null
     private var wantBg = true
@@ -199,12 +200,59 @@ class MainActivity : Activity() {
         buildUi()
         refresh()
         if (!Prefs.hasCreds(this)) showPanel(1)
-        if (Build.VERSION.SDK_INT >= 33 &&
-            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-        ) {
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 9)
+        if (!Prefs.getB(this, "onboarded", false)) {
+            // 첫 실행: 사용 안내와 위치 권한 설정 방법을 먼저 보여 주고, 끝나면 권한을 요청
+            holdPerms = true
+            showGuide(guidePages(true), 0) {
+                Prefs.putB(this, "onboarded", true)
+                holdPerms = false
+                askedLoc = true
+                val ps = ArrayList<String>()
+                if (Build.VERSION.SDK_INT >= 33) ps.add(Manifest.permission.POST_NOTIFICATIONS)
+                ps.add(Manifest.permission.ACCESS_FINE_LOCATION)
+                ps.add(Manifest.permission.ACCESS_COARSE_LOCATION)
+                requestPermissions(ps.toTypedArray(), 3)
+            }
+        } else {
+            if (Build.VERSION.SDK_INT >= 33 &&
+                checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 9)
+            }
+            askExactAlarmOnce()
         }
-        askExactAlarmOnce()
+    }
+
+    private fun guidePages(first: Boolean): List<Pair<String, String>> {
+        val pages = arrayListOf(
+            "이 앱은 이런 일을 해요" to "• 회사 출퇴근 사이트에 자동으로 로그인해요.\n• 사이트가 출근지·퇴근지를 인식해 장소명이 뜨면 출근/퇴근 버튼이 켜지고, 설정하면 자동으로 찍어요.\n• 출근 마감 10분 전과 퇴근 시각에 아직 안 찍었으면 알려 줘요.\n\n출퇴근 가능 여부는 회사 사이트가 폰 GPS로 판단해요. 앱은 그 결과를 따라요.",
+            "처음 한 번 하는 설정" to "1. [회사 아이디] 탭에서 사이트 아이디·비밀번호를 저장해요. 이 폰 안에 암호화되어 저장돼요.\n2. 맨 위 로그인 표시가 초록색 '로그인됨'이면 정상이에요.\n3. [설정] 탭에서 '회사 도착 시 자동 출근'을 켜면 도착했을 때 자동으로 출근이 찍혀요.",
+            "메인 화면 사용법" to "• 출근/퇴근 버튼: 사이트가 출근지·퇴근지명을 띄우면 켜져요. 안 켜져 있으면 아직 인식 전이에요.\n• 19시 퇴근 / 22시 퇴근: 오늘 자동 퇴근 시각을 고르는 버튼이에요. 그 시각 이후 퇴근지에 있으면 자동으로 퇴근이 찍혀요. 다시 누르면 해제되고, 매일 새로 골라야 해요.",
+            "설정 탭 기능 설명" to "• 회사 도착 시 자동 출근: 켜면 출근지에 도착해 장소명이 뜰 때 바로 출근을 찍어요.\n• 자동 출근 시작 시각: 이 시각 이전에는 자동 출근을 안 해요. 지정 안 함이면 도착하는 즉시예요.\n• 매일 자동 퇴근 시각: 지정하면 매일 그 시각 이후 퇴근지에서 퇴근이 찍혀요. 메인의 19시/22시 버튼은 그날만 이 설정을 덮어써요.\n• 주말 제외: 켜면 토·일에는 자동 동작과 알림이 없어요.\n• 알림: 출근 마감 10분 전과 퇴근 시각에 알려 줘요."
+        )
+        if (first) pages.add(
+            "위치 권한 설정 방법" to "이 안내는 처음 실행할 때만 나와요. 다음 순서로 허용해 주세요.\n\n① 위치: 팝업에서 '정확한 위치'를 켜고 '앱 사용 중에만 허용'을 눌러요.\n② 앱을 닫아도 자동으로 동작하게 하려면 위치를 '항상 허용'으로 바꿔야 해요. 팝업이 뜨면 '항상 허용'을 고르고, 안 뜨면 폰 설정 → 앱 → 출퇴근 → 권한 → 위치 → '항상 허용'.\n③ 알림: '허용'을 눌러요.\n④ 폰 설정 → 앱 → 출퇴근 → 배터리 → '제한 없음'으로 두면 백그라운드에서도 잘 동작해요.\n⑤ '알람 및 리마인더' 허용 안내가 뜨면 허용해 주세요. (정확한 시각 알림용)"
+        )
+        return pages
+    }
+
+    private fun showGuide(pages: List<Pair<String, String>>, idx: Int, onDone: () -> Unit) {
+        val last = idx == pages.size - 1
+        val b = AlertDialog.Builder(this)
+            .setTitle("${idx + 1}/${pages.size}  ${pages[idx].first}")
+            .setMessage(pages[idx].second)
+            .setCancelable(false)
+            .setPositiveButton(if (last) "시작하기" else "다음") { _, _ ->
+                if (last) onDone() else showGuide(pages, idx + 1, onDone)
+            }
+        if (idx > 0) b.setNegativeButton("이전") { _, _ -> showGuide(pages, idx - 1, onDone) }
+        else b.setNegativeButton("건너뛰기") { _, _ -> onDone() }
+        b.show()
+    }
+
+    private fun info(text: String) = label(text, 12.5f, ink).apply {
+        setPadding(dp(12), dp(10), dp(12), dp(10))
+        background = rounded(Color.parseColor("#EEF1FA"), 12)
     }
 
     /** 07:50 / 17:00 알림을 정확한 시각에 받으려면 '알람 및 리마인더' 허용이 필요 (Android 12+) */
@@ -242,7 +290,7 @@ class MainActivity : Activity() {
         // 앱이 열려 있는 동안 GPS로 회사까지 거리를 계속 확인 → 허용 반경 이내일 때만 버튼 활성화
         if (has(Manifest.permission.ACCESS_FINE_LOCATION)) {
             startLocationUpdates()
-        } else if (!askedLoc) {
+        } else if (!askedLoc && !holdPerms) {
             askedLoc = true
             requestPermissions(
                 arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION), 3
@@ -626,7 +674,8 @@ class MainActivity : Activity() {
 
         // ----- 탭 1: 로그인·기록 확인 -----
         val p0 = panels[0]!!
-        p0.addView(label("로그인 · 기록 확인", 13f, subGray, true))
+        p0.addView(info("이 탭에서는 회사 사이트에 로그인해 오늘의 출근·퇴근 기록과 출근지를 읽어와요. 위의 로그인 표시가 초록색이면 정상이에요. 출퇴근을 찍지는 않아요."))
+        p0.addView(label("로그인 · 기록 확인", 13f, subGray, true), lp(10))
         p0.addView(label("회사 사이트에 로그인해서 오늘의 출근/퇴근 기록과 출근지를 읽어와요. 출퇴근은 찍지 않아요.", 12f, subGray))
         p0.addView(filledBtn("지금 확인하기") { syncNow(true) }, lp(10, -1, dp(48)))
         p0.addView(outlineBtn("사이트 직접 열기 (수동 로그인/확인)") {
@@ -635,7 +684,8 @@ class MainActivity : Activity() {
 
         // ----- 탭 2: 회사 아이디 -----
         val p1 = panels[1]!!
-        p1.addView(label("회사 사이트 로그인", 13f, subGray, true))
+        p1.addView(info("이 탭에서는 회사 사이트 아이디·비밀번호를 한 번만 저장해요. 이 폰 안에 암호화되어 저장되고 다른 곳으로 보내지 않아요. 저장하면 바로 로그인이 되는지 확인해요."))
+        p1.addView(label("회사 사이트 로그인", 13f, subGray, true), lp(10))
         p1.addView(label("이 폰 안에 암호화되어 저장돼요", 12f, subGray))
         idEt = field("아이디")
         pwEt = field("비밀번호 (바꿀 때만 입력)", pwd = true)
@@ -648,7 +698,8 @@ class MainActivity : Activity() {
 
         // ----- 탭 3: 위치 확인 -----
         val p2 = panels[2]!!
-        p2.addView(label("위치 확인", 13f, subGray, true))
+        p2.addView(info("이 탭에서는 지금 내 위치(도로명 주소)와 사이트가 인식한 출근지·퇴근지를 보여 줘요. 장소명이 뜨면 출근/퇴근 버튼이 켜져요. 인식이 느리면 창가나 야외에서 '지금 위치 다시 확인'을 누르고, 위치 권한은 '항상 허용'으로 해 주세요."))
+        p2.addView(label("위치 확인", 13f, subGray, true), lp(10))
         p2.addView(label("회사 사이트가 폰 GPS로 출근지를 판단해요. 출근 전에는 출근지, 출근 후에는 퇴근지 근처일 때만 해당 버튼이 켜져요.", 12f, subGray))
         locStatTv = label("", 13f, ink)
         p2.addView(locStatTv, lp(10))
@@ -657,7 +708,8 @@ class MainActivity : Activity() {
 
         // ----- 탭 4: 설정 -----
         val p3 = panels[3]!!
-        p3.addView(label("자동 출퇴근 · 알림", 13f, subGray, true))
+        p3.addView(info("이 탭에서는 자동 출퇴근과 알림을 설정해요.\n• 자동 출근: 출근지에 도착해 장소명이 뜨면 바로 출근을 찍어요.\n• 자동 출근 시작 시각: 이 시각 이전엔 자동 출근하지 않아요.\n• 매일 자동 퇴근 시각: 그 시각 이후 퇴근지에서 퇴근을 찍어요. (메인의 19시/22시 버튼은 오늘만 바꿔요)\n• 주말 제외 · 알림 · 앱 업데이트도 여기서 설정해요."))
+        p3.addView(label("자동 출퇴근 · 알림", 13f, subGray, true), lp(10))
         autoSw = Switch(this).apply { text = "회사 도착 시 자동 출근" }
         weekendSw = Switch(this).apply { text = "주말에는 자동 출퇴근·알림 끄기" }
         remindSw = Switch(this).apply { text = "알림: 출근 마감 10분 전 · 퇴근 시작 시각" }
@@ -671,6 +723,7 @@ class MainActivity : Activity() {
         p3.addView(autoOutSw, lp(6))
         p3.addView(weekendSw, lp(6))
         p3.addView(remindSw, lp(6))
+        p3.addView(outlineBtn("사용 안내 다시 보기") { showGuide(guidePages(false), 0) { } }, lp(10, -1, dp(46)))
         p3.addView(sectionTitle("앱 업데이트"))
         p3.addView(label("새 버전이 있으면 화면 맨 위 버전 아래에 '업데이트가 필요함'이 표시돼요.", 12f, subGray))
         p3.addView(outlineBtn("지금 업데이트 확인") {
@@ -925,6 +978,7 @@ class MainActivity : Activity() {
     override fun onRequestPermissionsResult(code: Int, perms: Array<out String>, results: IntArray) {
         super.onRequestPermissionsResult(code, perms, results)
         when (code) {
+            3 -> askExactAlarmOnce()
             1 -> {
                 if (has(Manifest.permission.ACCESS_FINE_LOCATION)) {
                     if (wantBg && Build.VERSION.SDK_INT >= 29 && !has(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) askBackground()
