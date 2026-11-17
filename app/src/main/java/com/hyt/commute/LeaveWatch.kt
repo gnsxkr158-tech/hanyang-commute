@@ -22,8 +22,8 @@ import com.google.android.gms.location.Priority
 
 /**
  * 퇴근 시각을 따로 정하지 않은 날: 17시 이후 퇴근지(알려진 출근지 근처)에서 머물다가 벗어나기 시작하면 바로 퇴근을 찍음.
- * 사이트는 퇴근지에서 약 100~200m 이내일 때만 퇴근을 받으므로, 앵커(머무른 위치)에서 조금만 벗어나도 즉시 시도함.
- * 앵커 위치 정확도가 낮으면 GPS 흔들림으로 오인하지 않도록 기준 거리를 자동으로 넓힘 (최소 10m).
+ * 사이트는 퇴근지에서 약 100~200m 이내일 때만 퇴근을 받으므로, 머무른 위치(앵커)에서 50m 이상(GPS 오차가 크면 더 넓게) 연속으로 벗어날 때 시도함.
+ * 10m 기준은 실내 GPS 흔들림만으로도 넘어서 책상에 앉아 있어도 퇴근이 찍히는 문제가 있어 50m로 넓힘.
  */
 class LeaveWatchService : Service() {
     companion object {
@@ -84,28 +84,46 @@ class LeaveWatchService : Service() {
         stopSelf()
     }
 
+    private var anchorAt = 0L
+    private var firstFarAt = 0L
+    private val startedAt = System.currentTimeMillis()
+
     private fun onFix(l: Location) {
         if (!Sched.leaveDue(this)) { finish(); return } // 퇴근이 찍혔거나 감시 시간대가 끝남
-        if (Gate.isMock(l) || l.accuracy > 60f) return
+        val now = System.currentTimeMillis()
+        // 한 번에 최대 20분만 감시 (배터리 보호). 아직 조건이 남아 있으면 2분 뒤 다시 켜짐
+        if (now - startedAt > 20 * 60_000L) { finish(); return }
+        // 실내에서 GPS가 크게 흔들려 '벗어났다'고 오인하는 것을 막기 위해 정확도가 좋은 위치만 사용
+        if (Gate.isMock(l) || l.accuracy > 30f) return
         val a = anchor
         if (a == null) {
-            val near = Spots.all(this).any { Gate.distance(it.lat, it.lng, l) < 250 }
-            if (near) {
+            if (Spots.all(this).any { Gate.distance(it.lat, it.lng, l) < 250 }) {
                 anchor = l
+                anchorAt = now
                 noSpotHits = 0
+                farHits = 0
             } else if (++noSpotHits >= 10) {
                 finish() // 아는 출근지 근처가 아님 → 감시 종료 (2분 뒤 다시 확인)
             }
             return
         }
         val d = a.distanceTo(l)
-        val thr = maxOf(10f, a.accuracy + l.accuracy)
-        if (d <= thr) {
-            farHits = 0
-            if (l.accuracy < a.accuracy) anchor = l // 머무는 동안 가장 정확한 위치를 기준으로 삼음
+        // 처음 20초는 기준 위치를 안정시키는 시간 (이 동안은 퇴근을 찍지 않음)
+        if (now - anchorAt < 20_000L) {
+            if (d < 30f && l.accuracy < a.accuracy) anchor = l
             return
         }
-        if (++farHits < 2) return // 흔들림이 아닌 실제 이동인지 연속 2회 확인
+        val thr = maxOf(50f, 2f * (a.accuracy + l.accuracy))
+        if (d <= thr) {
+            farHits = 0
+            firstFarAt = 0L
+            if (d < 15f && l.accuracy < a.accuracy) anchor = l // 머무는 동안 가장 정확한 위치를 기준으로 삼음
+            return
+        }
+        if (farHits == 0) firstFarAt = now
+        farHits++
+        // 기준에서 계속 멀어지는 상태가 연속 3회, 6초 이상 이어질 때만 '벗어남'으로 판단
+        if (farHits < 3 || now - firstFarAt < 6_000L) return
         // 하루 최대 3번까지만 시도
         val today = Util.today()
         val cnt = if (Prefs.getS(this, "leaveTryDate") == today) Prefs.getI(this, "leaveTryCnt", 0) else 0
