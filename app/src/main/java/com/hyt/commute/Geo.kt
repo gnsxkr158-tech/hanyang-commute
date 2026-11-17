@@ -143,7 +143,8 @@ class GeofenceReceiver : BroadcastReceiver() {
                 if (Prefs.getB(c, "autoOut", false) && Sched.picked(c) && Prefs.getS(c, "outDate") != today) {
                     val from = Sched.outFrom(c)
                     if (Sched.nowMin() >= from) {
-                        ClockService.start(c, 2, true, gate = false)
+                        // 벗어난 뒤에는 사이트가 퇴근지를 못 찾을 수 있어, 아직 인식되는 경우에만 조용히 시도
+                        ClockService.start(c, 2, true, gate = false, near = true, quiet = true)
                     } else {
                         Util.notify(c, "자동 퇴근 건너뜀", "${Sched.fmt(from)} 이전이라 퇴근을 찍지 않았어요.")
                     }
