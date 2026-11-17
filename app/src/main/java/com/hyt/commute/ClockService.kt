@@ -29,7 +29,7 @@ class ClockService : Service() {
             c: Context, action: Int, skipIfDone: Boolean,
             gate: Boolean = true, retry: Boolean = false, remind: Int = 0,
             dry: Boolean = false, near: Boolean = false, quiet: Boolean = false
-        ) {
+        ): Boolean {
             val i = Intent(c, ClockService::class.java)
                 .putExtra("action", action)
                 .putExtra("skip", skipIfDone)
@@ -39,7 +39,19 @@ class ClockService : Service() {
                 .putExtra("dry", dry)
                 .putExtra("near", near)
                 .putExtra("quiet", quiet)
-            ContextCompat.startForegroundService(c, i)
+            // 안드로이드가 '백그라운드 상태'라고 판단하면 서비스 시작을 거부(ForegroundServiceStartNotAllowedException).
+            // 앱이 죽지 않도록 잡아서 처리하고, 호출한 쪽은 false로 실패를 알 수 있음
+            return try {
+                ContextCompat.startForegroundService(c, i)
+                true
+            } catch (e: Throwable) {
+                if (action == 1 || action == 2) {
+                    Util.notify(c, "${if (action == 1) "출근" else "퇴근"} 처리를 시작하지 못했어요", "백그라운드 실행이 제한되었어요. 앱을 열어 직접 눌러 주세요.")
+                }
+                Prefs.putS(c, "msg", "${Util.now().substring(11)} 처리를 시작하지 못했어요 (폰이 백그라운드 실행을 막았어요). 앱을 닫았다 다시 열어 보세요.")
+                Bus.onChange?.invoke()
+                false
+            }
         }
     }
 
