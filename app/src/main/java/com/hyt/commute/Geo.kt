@@ -129,18 +129,13 @@ class GeofenceReceiver : BroadcastReceiver() {
         when (ev.geofenceTransition) {
             Geofence.GEOFENCE_TRANSITION_ENTER -> {
                 if (Prefs.getS(c, "inDate") != today) {
-                    val limit = Sched.inLimit(c)
-                    if (Prefs.getB(c, "lateNotifyOnly", true) && Sched.nowMin() >= limit) {
-                        Util.notify(c, "자동 출근 건너뜀", "${Sched.fmt(limit)}가 지나서 자동으로 찍지 않았어요. 앱에서 직접 확인해 주세요.")
-                        return
-                    }
                     // 사이트가 폰 GPS로 '지정된 출근지 근처'로 인정할 때까지 30초마다 최대 약 10분간 재확인
                     ClockService.start(c, 1, true, gate = false, retry = true, near = true)
                 }
             }
             Geofence.GEOFENCE_TRANSITION_EXIT -> {
                 // 회사를 벗어난 상태라 50m 규칙과 충돌하므로, 사용자가 따로 켠 경우에만 동작
-                if (Prefs.getB(c, "autoOut", false) && Sched.picked(c) && Prefs.getS(c, "outDate") != today) {
+                if (Prefs.getB(c, "autoOut", false) && Sched.outAuto(c) >= 0 && Prefs.getS(c, "outDate") != today) {
                     val from = Sched.outFrom(c)
                     if (Sched.nowMin() >= from) {
                         // 벗어난 뒤에는 사이트가 퇴근지를 못 찾을 수 있어, 아직 인식되는 경우에만 조용히 시도

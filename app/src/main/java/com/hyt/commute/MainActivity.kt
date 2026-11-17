@@ -47,7 +47,6 @@ class MainActivity : Activity() {
     private val panels = arrayOfNulls<LinearLayout>(4)
     private val tabBtns = arrayOfNulls<Button>(4)
     private var openPanel = -1
-    private lateinit var lateSw: Switch
     private lateinit var updTv: TextView
     private lateinit var idEt: EditText
     private lateinit var pwEt: EditText
@@ -57,8 +56,9 @@ class MainActivity : Activity() {
     private lateinit var autoOutSw: Switch
     private lateinit var pick19: Button
     private lateinit var pick22: Button
-    private lateinit var pickX: Button
     private lateinit var pickTv: TextView
+    private lateinit var inStartBtn: Button
+    private lateinit var outStdBtn: Button
     private lateinit var remindSw: Switch
     private lateinit var loginTv: TextView
     private lateinit var distTv: TextView
@@ -592,10 +592,8 @@ class MainActivity : Activity() {
         val prow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         pick19 = outlineBtn("19시 퇴근") { pickOut(19 * 60) }
         pick22 = outlineBtn("22시 퇴근") { pickOut(22 * 60) }
-        pickX = outlineBtn("직접 입력") { pickCustom() }
-        prow.addView(pick19, LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(4) })
-        prow.addView(pick22, LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(4); rightMargin = dp(4) })
-        prow.addView(pickX, LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(4) })
+        prow.addView(pick19, LinearLayout.LayoutParams(0, dp(44), 1f).apply { rightMargin = dp(6) })
+        prow.addView(pick22, LinearLayout.LayoutParams(0, dp(44), 1f).apply { leftMargin = dp(6) })
         body.addView(prow, lp(8))
         pickTv = label("", 12f, subGray).apply { gravity = Gravity.CENTER }
         body.addView(pickTv, lp(4))
@@ -661,12 +659,15 @@ class MainActivity : Activity() {
         val p3 = panels[3]!!
         p3.addView(label("자동 출퇴근 · 알림", 13f, subGray, true))
         autoSw = Switch(this).apply { text = "회사 도착 시 자동 출근" }
-        lateSw = Switch(this).apply { text = "출근 마감 시각 이후 도착하면 자동 출근 대신 알림만" }
         weekendSw = Switch(this).apply { text = "주말에는 자동 출퇴근·알림 끄기" }
         remindSw = Switch(this).apply { text = "알림: 출근 마감 10분 전 · 퇴근 시작 시각" }
         autoOutSw = Switch(this).apply { text = "퇴근 시작 시각 이후 퇴근지명이 뜨면 자동 퇴근" }
+        inStartBtn = outlineBtn("") { pickStd("inStartMin", "자동 출근 시작 시각", 7 * 60) }
+        outStdBtn = outlineBtn("") { pickStd("outStdMin", "매일 자동 퇴근 시각", 17 * 60) }
+        p3.addView(label("자동 출퇴근 시각 (매일 반복, 주말 제외 설정 따름)", 12f, subGray))
+        p3.addView(inStartBtn, lp(6, -1, dp(46)))
+        p3.addView(outStdBtn, lp(6, -1, dp(46)))
         p3.addView(autoSw, lp(10))
-        p3.addView(lateSw, lp(6))
         p3.addView(autoOutSw, lp(6))
         p3.addView(weekendSw, lp(6))
         p3.addView(remindSw, lp(6))
@@ -693,8 +694,6 @@ class MainActivity : Activity() {
         weekendSw.isChecked = Prefs.getB(this, "skipWeekend", true)
         autoOutSw.isChecked = Prefs.getB(this, "autoOut", false)
         autoOutSw.setOnCheckedChangeListener { _, on -> Prefs.putB(this, "autoOut", on); AutoWatch.schedule(this) }
-        lateSw.isChecked = Prefs.getB(this, "lateNotifyOnly", true)
-        lateSw.setOnCheckedChangeListener { _, on -> Prefs.putB(this, "lateNotifyOnly", on) }
         autoSw.setOnCheckedChangeListener { _, on -> onAutoToggled(on) }
         weekendSw.setOnCheckedChangeListener { _, on ->
             Prefs.putB(this, "skipWeekend", on)
@@ -711,10 +710,41 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun stdText(key: String, none: String): String =
+        Prefs.getI(this, key, -1).let { if (it >= 0) Sched.fmt(it) else none }
+
+    /** 매일 반복되는 자동 출퇴근 시각 설정 (시계 화면의 키보드 아이콘으로 숫자 입력, "해제"로 끄기) */
+    private fun pickStd(key: String, title: String, def: Int) {
+        val cur = Prefs.getI(this, key, -1).let { if (it >= 0) it else def }
+        val dlg = TimePickerDialog(this, { _, h, m ->
+            Prefs.putI(this, key, h * 60 + m)
+            afterStdChange()
+        }, cur / 60, cur % 60, true)
+        dlg.setTitle(title)
+        dlg.setButton(android.content.DialogInterface.BUTTON_NEUTRAL, "해제") { _, _ ->
+            Prefs.putI(this, key, -1)
+            afterStdChange()
+        }
+        dlg.show()
+    }
+
+    private fun afterStdChange() {
+        if (Prefs.getI(this, "outStdMin", -1) >= 0 && !Prefs.getB(this, "autoOut", false)) {
+            Prefs.putB(this, "autoOut", true)
+            autoOutSw.isChecked = true
+        }
+        refreshTimeTexts()
+        refreshPick()
+        Remind.scheduleAll(this)
+        AutoWatch.schedule(this)
+        Toast.makeText(this, "저장했어요", Toast.LENGTH_SHORT).show()
+    }
+
     private fun refreshTimeTexts() {
-        lateSw.text = "${Sched.fmt(Sched.inLimit(this))} 이후 도착하면 자동 출근 대신 알림만"
+        inStartBtn.text = "자동 출근 시작 시각: ${stdText("inStartMin", "지정 안 함 (도착하면 바로)")}"
+        outStdBtn.text = "매일 자동 퇴근 시각: ${stdText("outStdMin", "지정 안 함")}"
         remindSw.text = "알림: 출근 마감 10분 전(${Sched.fmt(maxOf(Sched.inLimit(this) - 10, 0))}) · 퇴근 시각"
-        autoOutSw.text = "오늘 고른 퇴근 시각 이후 퇴근지에서 자동 퇴근"
+        autoOutSw.text = "자동 퇴근 (고른/설정한 퇴근 시각 이후 퇴근지에서)"
         refreshPick()
     }
 
@@ -737,22 +767,18 @@ class MainActivity : Activity() {
         AutoWatch.schedule(this)
     }
 
-    /** 시각을 직접 입력 (시계 화면의 키보드 아이콘으로 숫자 입력 가능) */
-    private fun pickCustom() {
-        val cur = if (Sched.picked(this)) Prefs.getI(this, "outPickMin", 18 * 60) else 18 * 60
-        TimePickerDialog(this, { _, h, m -> pickOut(h * 60 + m, toggle = false) }, cur / 60, cur % 60, true).show()
-    }
-
     private fun refreshPick() {
         val sel = if (Sched.picked(this)) Prefs.getI(this, "outPickMin", -1) else -1
-        val custom = sel >= 0 && sel != 19 * 60 && sel != 22 * 60
-        for ((b, on) in listOf(pick19 to (sel == 19 * 60), pick22 to (sel == 22 * 60), pickX to custom)) {
+        for ((b, on) in listOf(pick19 to (sel == 19 * 60), pick22 to (sel == 22 * 60))) {
             b.background = rounded(if (on) navy else Color.parseColor("#EEF1FA"), 16)
             b.setTextColor(if (on) Color.WHITE else navy)
         }
-        pickX.text = if (custom) Sched.fmt(sel) else "직접 입력"
-        pickTv.text = if (sel >= 0) "오늘 ${Sched.fmt(sel)} 이후 퇴근지에 있으면 자동으로 퇴근을 찍어요 (같은 버튼을 다시 누르면 해제)"
-        else "오늘 퇴근 시각을 고르면 그 시각 이후 퇴근지에서 자동으로 퇴근을 찍어요"
+        val std = Prefs.getI(this, "outStdMin", -1)
+        pickTv.text = when {
+            sel >= 0 -> "오늘 ${Sched.fmt(sel)} 이후 퇴근지에 있으면 자동으로 퇴근을 찍어요 (같은 버튼을 다시 누르면 해제)"
+            std >= 0 -> "오늘은 설정의 매일 퇴근 시각(${Sched.fmt(std)}) 이후 자동 퇴근이에요. 오늘만 바꾸려면 위 버튼을 누르세요"
+            else -> "오늘 퇴근 시각을 고르면 그 시각 이후 퇴근지에서 자동으로 퇴근을 찍어요"
+        }
     }
 
     private fun showPanel(i: Int) {

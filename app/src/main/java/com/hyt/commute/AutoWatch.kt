@@ -16,7 +16,15 @@ object Sched {
     fun inLimit(c: Context): Int = 8 * 60 // 출근 마감 08:00 고정
     /** 오늘 고른 퇴근 시각이 있는지 (19시/22시 버튼) */
     fun picked(c: Context): Boolean = Prefs.getS(c, "outPickDate") == Util.today()
-    fun outFrom(c: Context): Int = if (picked(c)) Prefs.getI(c, "outPickMin", 17 * 60) else 17 * 60
+    /** 자동 퇴근 시각: 오늘 고른 시각(19시/22시 버튼) > 설정의 매일 퇴근 시각 > 없음(-1) */
+    fun outAuto(c: Context): Int = when {
+        picked(c) -> Prefs.getI(c, "outPickMin", -1)
+        else -> Prefs.getI(c, "outStdMin", -1)
+    }
+    /** 알림 기준 시각 (자동 퇴근 시각이 없으면 17:00) */
+    fun outFrom(c: Context): Int = outAuto(c).let { if (it >= 0) it else 17 * 60 }
+    /** 자동 출근 시작 시각 (설정, 없으면 05:00부터) */
+    fun inStart(c: Context): Int = Prefs.getI(c, "inStartMin", -1).let { if (it >= 0) it else 5 * 60 }
     fun fmt(m: Int): String = "%02d:%02d".format(m / 60, m % 60)
     fun nowMin(): Int {
         val cal = Calendar.getInstance()
@@ -34,10 +42,9 @@ object Sched {
         val today = Util.today()
         val now = nowMin()
         if (Prefs.getB(c, "auto", false) && Prefs.getS(c, "inDate") != today) {
-            val end = if (Prefs.getB(c, "lateNotifyOnly", true)) inLimit(c) else 12 * 60
-            if (now >= 5 * 60 && now < end) return 1
+            if (now >= inStart(c) && now < 12 * 60) return 1
         }
-        if (Prefs.getB(c, "autoOut", false) && picked(c) && Prefs.getS(c, "inDate") == today &&
+        if (Prefs.getB(c, "autoOut", false) && outAuto(c) >= 0 && Prefs.getS(c, "inDate") == today &&
             Prefs.getS(c, "outDate") != today && now >= outFrom(c)
         ) return 2
         return 0
@@ -59,7 +66,7 @@ object AutoWatch {
             return
         }
         var delay = if (Sched.due(app) != 0) 2 * 60_000L else 10 * 60_000L
-        if (Prefs.getB(app, "autoOut", false) && Sched.picked(app)) {
+        if (Prefs.getB(app, "autoOut", false) && Sched.outAuto(app) >= 0) {
             val untilOut = (Sched.outFrom(app) - Sched.nowMin()) * 60_000L
             if (untilOut in 1 until delay) delay = untilOut
         }
@@ -85,7 +92,7 @@ object AutoWatch {
         val d = Sched.due(app)
         if (d == 0) {
             val now = System.currentTimeMillis()
-            if (Prefs.getB(app, "autoOut", false) && Sched.picked(app) && !Sched.weekendOff(app) && Prefs.hasCreds(app) &&
+            if (Prefs.getB(app, "autoOut", false) && Sched.outAuto(app) >= 0 && !Sched.weekendOff(app) && Prefs.hasCreds(app) &&
                 Sched.nowMin() >= Sched.outFrom(app) && Prefs.getS(app, "outDate") != Util.today() &&
                 Prefs.getS(app, "inDate") != Util.today() && !ClockService.running &&
                 now - (Prefs.getS(app, "tickSync").toLongOrNull() ?: 0L) > 30 * 60_000L
