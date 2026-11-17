@@ -82,7 +82,7 @@ object Remind {
         } else {
             Util.notify(
                 c, "⏰ 퇴근 시간이에요",
-                (if (Sched.outAuto(c) >= 0) "" else "오늘 퇴근 시각(19시/22시)을 골라 두면 자동으로 퇴근을 찍어요. ") + "퇴근을 찍어야 해요. 회사 ${Prefs.getI(c, "radius", 50)}m 이내에서 앱의 [퇴근]을 눌러 주세요.", 4
+                (if (Sched.outAuto(c) >= 0 || Prefs.getB(c, "autoOut", false)) "" else "오늘 퇴근 시각(19시/22시)을 골라 두면 자동으로 퇴근을 찍어요. ") + "퇴근을 찍어야 해요. 회사 ${Prefs.getI(c, "radius", 50)}m 이내에서 앱의 [퇴근]을 눌러 주세요.", 4
             )
         }
     }

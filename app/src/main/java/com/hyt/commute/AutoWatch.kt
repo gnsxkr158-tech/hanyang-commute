@@ -37,6 +37,13 @@ object Sched {
     }
 
     /** 지금 자동으로 찍을 동작: 0=없음, 1=출근, 2=퇴근 */
+    /** 퇴근 시각을 정하지 않았을 때(오늘 고른 시각도, 매일 설정도 없음) '17시 이후 퇴근지를 벗어나면 퇴근' 감시를 해야 하는 시간대인지 */
+    fun leaveDue(c: Context): Boolean {
+        if (weekendOff(c) || !Prefs.getB(c, "autoOut", false) || outAuto(c) >= 0) return false
+        val today = Util.today()
+        return Prefs.getS(c, "inDate") == today && Prefs.getS(c, "outDate") != today && nowMin() >= 17 * 60
+    }
+
     fun due(c: Context): Int {
         if (weekendOff(c)) return 0
         val today = Util.today()
@@ -65,8 +72,8 @@ object AutoWatch {
             am.cancel(pi(app))
             return
         }
-        var delay = if (Sched.due(app) != 0) 2 * 60_000L else 10 * 60_000L
-        if (Prefs.getB(app, "autoOut", false) && Sched.outAuto(app) >= 0) {
+        var delay = if (Sched.due(app) != 0 || Sched.leaveDue(app)) 2 * 60_000L else 10 * 60_000L
+        if (Prefs.getB(app, "autoOut", false)) {
             val untilOut = (Sched.outFrom(app) - Sched.nowMin()) * 60_000L
             if (untilOut in 1 until delay) delay = untilOut
         }
@@ -90,9 +97,17 @@ object AutoWatch {
     @android.annotation.SuppressLint("MissingPermission")
     fun tick(app: Context, done: () -> Unit) {
         val d = Sched.due(app)
+        if (d == 0 && Sched.leaveDue(app)) {
+            // 퇴근 시각 미지정: 퇴근지를 벗어나는 순간을 잡기 위해 GPS 감시 서비스를 켬 (알려진 출근지 3km 이내일 때만)
+            if (!LeaveWatchService.running && !ClockService.running && Prefs.hasCreds(app)) {
+                try { LeaveWatchService.start(app) } catch (_: Throwable) { }
+            }
+            done()
+            return
+        }
         if (d == 0) {
             val now = System.currentTimeMillis()
-            if (Prefs.getB(app, "autoOut", false) && Sched.outAuto(app) >= 0 && !Sched.weekendOff(app) && Prefs.hasCreds(app) &&
+            if (Prefs.getB(app, "autoOut", false) && !Sched.weekendOff(app) && Prefs.hasCreds(app) &&
                 Sched.nowMin() >= Sched.outFrom(app) && Prefs.getS(app, "outDate") != Util.today() &&
                 Prefs.getS(app, "inDate") != Util.today() && !ClockService.running &&
                 now - (Prefs.getS(app, "tickSync").toLongOrNull() ?: 0L) > 30 * 60_000L
